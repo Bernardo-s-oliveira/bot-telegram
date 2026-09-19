@@ -127,9 +127,27 @@ def cmd_testar(args):
     for o in ofertas[:10]:
         print(f"[-{o.desconto or 0:>2}%] R$ {o.preco} (de {o.preco_original}) — "
               f"{o.titulo[:60]}")
-        if o.extra:
-            print(f"       {o.extra}")
+        print(f"       nota {o.nota} · avaliações {o.avaliacoes} · vendas {o.vendas}"
+              f"{'/mês' if o.vendas_mensal else ''}" + (f" · {o.extra}" if o.extra else ""))
     print(f"\nTotal: {len(ofertas)} ofertas")
+
+
+def cmd_simular(_):
+    """Roda coleta + seleção como um ciclo real, mas só mostra o resultado (não posta nada)."""
+    from . import db, pipeline
+    from .config import config
+    ofertas = pipeline.coletar()
+    db.registrar_precos(ofertas)  # alimenta o histórico de preços (não posta nem marca como postada)
+    escolhidas, rejeicoes = pipeline.selecionar(ofertas, config.max_posts_por_ciclo)
+    print(f"\nColetadas: {len(ofertas)} · escolhidas: {len(escolhidas)}")
+    if rejeicoes:
+        print("Rejeitadas: " + ", ".join(f"{m}: {q}" for m, q in sorted(rejeicoes.items(), key=lambda x: -x[1])))
+    for o in escolhidas:
+        print(f"\n[{o.faixa} · score {o.score:.2f}] {o.plataforma} — {o.titulo[:70]}")
+        print(f"   R$ {o.preco} (de {o.preco_original}) -{o.desconto or 0}%"
+              f" · nota {o.nota} · vendas {o.vendas}{'/mês' if o.vendas_mensal else ''}")
+        for s in o.selos:
+            print(f"   {s}")
 
 
 def main():
@@ -162,6 +180,8 @@ def main():
     pt = sub.add_parser("testar", help="testa uma fonte sem postar nada")
     pt.add_argument("fonte", choices=["ml", "shopee", "amazon"])
     pt.set_defaults(fn=cmd_testar)
+
+    sub.add_parser("simular", help="mostra o que o bot postaria agora, sem postar nada").set_defaults(fn=cmd_simular)
 
     args = p.parse_args()
     args.fn(args)

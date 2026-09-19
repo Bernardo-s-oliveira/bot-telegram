@@ -43,8 +43,8 @@ class Config:
         self.shopee_app_secret: str = os.getenv("SHOPEE_APP_SECRET", "").strip()
 
         # config.yaml
-        self.intervalo_minutos: int = int(geral.get("intervalo_minutos", 45))
-        self.max_posts_por_ciclo: int = int(geral.get("max_posts_por_ciclo", 3))
+        self.intervalo_minutos: int = int(geral.get("intervalo_minutos", 30))
+        self.max_posts_por_ciclo: int = int(geral.get("max_posts_por_ciclo", 5))
         self.espacamento_segundos: int = int(geral.get("espacamento_segundos", 120))
         self.nao_repetir_dias: int = int(geral.get("nao_repetir_dias", 7))
         self.horario_ativo: str = str(geral.get("horario_ativo") or "").strip()  # "08:00-23:00"; vazio = 24h
@@ -55,6 +55,44 @@ class Config:
         self.palavras_bloqueadas: list[str] = [
             str(p).lower() for p in (filtros.get("palavras_bloqueadas") or [])
         ]
+
+        # Critérios de qualidade e ranking (ver selecao.py). Chaves ausentes usam estes padrões.
+        sel = y.get("selecao") or {}
+        camp = sel.get("campeoes") or {}
+        self.exigir_avaliacao: bool = bool(sel.get("exigir_avaliacao", True))
+        self.nota_minima: float = float(sel.get("nota_minima", 4.3))
+        self.prova_social_minima: int = int(sel.get("prova_social_minima", 20))
+        self.rejeitar_desconto_falso: bool = bool(sel.get("rejeitar_desconto_falso", True))
+        self.historico_dias: int = int(sel.get("historico_dias", 30))
+        self.repostar_queda_pct: int = int(sel.get("repostar_se_queda_pct", 10))
+        self.vendas_mensal_para_total: float = float(sel.get("vendas_mensal_para_total", 6))
+        self.desconto_suspeito: int = int(sel.get("desconto_suspeito", 60))
+        self.desconto_max_sem_historico: int = int(sel.get("desconto_max_sem_historico", 50))
+        self.suspeita_vendas_minimas: int = int(sel.get("suspeita_vendas_minimas", 5000))
+        self.preco_minimo_vs_mercado_pct: int = int(sel.get("preco_minimo_vs_mercado_pct", 50))
+        self.verificar_vendedor: bool = bool(sel.get("verificar_vendedor", True))
+        self.buscar_cupons: bool = bool(sel.get("buscar_cupons", True))
+        self.vendedor_nivel_minimo: int = int(sel.get("vendedor_nivel_minimo", 4))
+        self.campeoes_vendas_minimas: int = int(camp.get("vendas_minimas", 1000))
+        self.campeoes_nota_minima: float = float(camp.get("nota_minima", 4.5))
+        self.campeoes_desconto_minimo: int = int(camp.get("desconto_minimo", 10))
+        self.campeoes_pct_posts: int = max(0, min(100, int(camp.get("pct_dos_posts", 50))))
+
+        # Variedade: não repete o mesmo TIPO de produto (ofertas/tipos.py) numa janela de horas
+        var = y.get("variedade") or {}
+        self.variedade_janela_horas: float = float(var.get("janela_horas", 4))
+        try:
+            from .tipos import adicionar_extras
+            adicionar_extras(var.get("tipos_extras") or {})
+        except Exception:
+            pass
+
+        # Post de divulgação do canal (link/hashtag), publicado de tempos em tempos em vez de em todo post
+        div = y.get("divulgacao") or {}
+        self.divulgacao_ativa: bool = bool(div.get("ativa", True))
+        self.divulgacao_a_cada_horas: float = float(div.get("a_cada_horas", 24))
+        self.divulgacao_fixar: bool = bool(div.get("fixar", False))
+        self.divulgacao_texto: str = str(div.get("texto") or "").strip()
 
         fontes = y.get("fontes") or {}
         self.fonte_ml: dict = fontes.get("mercadolivre") or {"ativa": False}

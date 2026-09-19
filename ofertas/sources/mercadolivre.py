@@ -18,8 +18,9 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from ..config import DATA_DIR, config
+from ..formatter import preco_br
 from ..models import Oferta
-from ..utils import USER_AGENT, parse_preco_br, sessao
+from ..utils import USER_AGENT, parse_contagem, parse_nota, parse_preco_br, sessao
 
 log = logging.getLogger("ofertas.ml")
 
@@ -104,10 +105,11 @@ def _parse_card(card) -> Oferta | None:
     if imagem and imagem.startswith("data:"):
         imagem = None  # placeholder de lazy-load
 
+    nota, vendas = _parse_review(card.select_one(".poly-component__review-compacted"))
+    el = card.select_one(".poly-component__seller")
+    vendedor = el.get_text(" ", strip=True) if el else None
+
     partes = []
-    review = card.select_one(".poly-component__review-compacted")
-    if review:
-        partes.append("⭐ " + re.sub(r"\s*\|\s*", " · ", review.get_text(" ", strip=True)))
     if "Frete grátis" in card.get_text():
         partes.append("🚚 Frete grátis")
     pix = card.select_one(".poly-price__unit-description")
@@ -125,7 +127,22 @@ def _parse_card(card) -> Oferta | None:
         desconto_pct=desconto,
         imagem=imagem,
         extra=" · ".join(partes) or None,
+        nota=nota,
+        vendas=vendas,
+        vendedor=vendedor,
     )
+
+
+_RE_VENDIDOS = re.compile(r"([\d.,]+\s*(?:mil|M|mi)?)\s*vendidos", re.I)
+
+
+def _parse_review(el) -> tuple[float | None, int | None]:
+    """Bloco de avaliação do card ("4.9 | +10mil vendidos") -> (nota, vendas mínimas)."""
+    if not el:
+        return None, None
+    texto = el.get_text(" ", strip=True)
+    m = _RE_VENDIDOS.search(texto)
+    return parse_nota(texto.split("|")[0]), (parse_contagem(m.group(1)) if m else None)
 
 
 def _parse_pagina(html: str) -> list[Oferta]:
@@ -286,6 +303,137 @@ def gerar_links_afiliado(ofertas: list[Oferta]) -> None:
                 for o, link in zip(lote, links):
                     o.url_afiliado = link
             log.info("Mercado Livre: %d links de afiliado gerados", len(pendentes))
+        finally:
+            ctx.close()
+
+
+# ── Reputação do vendedor (página do produto, navegador logado) ──────
+
+# Bloco de tracking da página do produto, específico do anúncio (verificado em 2026-09-19), ex.:
+# "event_data":{"seller_id":510386964,"seller_name":"Casa Dalonso","reputation_level":"5_green",
+#               "power_seller_status":"platinum","official_store_id":5361,...
+_RE_SELLER = re.compile(r'"seller_id":(\d+),"seller_name":"([^"]*)"(.{0,400})', re.S)
+_RE_NIVEL = re.compile(r'"reputation_level":"(\d)_')
+_RE_STATUS = re.compile(r'"power_seller_status":"(\w+)"')
+_RE_LOJA_OFICIAL = re.compile(r'"official_store_id":\d+')
+
+
+def parse_vendedor(html: str) -> dict:
+    """Dados do vendedor do anúncio a partir do HTML da página do produto. {} se não achar."""
+    m = _RE_SELLER.search(html)
+    if not m:
+        return {}
+    trecho = m.group(3)
+    nivel, status = _RE_NIVEL.search(trecho), _RE_STATUS.search(trecho)
+    soup = BeautifulSoup(html, "lxml")
+    vendas = soup.select_one(".ui-pdp-seller__header__subtitle")
+    rotulo = soup.select_one(".ui-pdp-seller__label-sold")
+    return {
+        "vendedor": m.group(2),
+        "nivel": int(nivel.group(1)) if nivel else None,
+        "status": status.group(1) if status else None,
+        "loja_oficial": bool(_RE_LOJA_OFICIAL.search(trecho)) or (rotulo is not None and "oficial" in rotulo.get_text().lower()),
+        "vendas": parse_contagem(vendas.get_text(" ", strip=True)) if vendas and "venda" in vendas.get_text().lower() else None,
+    }
+
+
+# Cupons na página do produto (verificado em 2026-09-19). Não há código: o comprador ativa no modal
+# "Ver cupons disponíveis". O pill do card ("20% OFF com Cupom") não diz a condição; a página diz.
+# Formatos vistos (o campo amount_type nem sempre existe):
+#   {"label":"Compre R$ 79,99 e ganhe 20% OFF","status":"unredeemed","amount_type":"percentage",
+#    "amount":20,"campaign_id":"13566431","type":"COUPON_NOT_MIN_PURCHASE_AMOUNT"}     <- exige compra mínima
+#   {"label":"R$ 106,32 com Cupom","status":"unredeemed","amount":0,
+#    "campaign_id":"14167118","type":"INACTIVE_COUPON_NOT_APPLIED"}                    <- preço final exato
+# O `status` é da conta logada do bot ("redeemed" = ela já ativou), não da campanha: não é critério.
+_RE_CUPOM = re.compile(r'\{"label":"([^"]+)","status":"(\w+)"(?:,"amount_type":"\w+")?,"amount":[\d.]+,'
+                       r'"campaign_id":"(\d+)","type":"(\w+)"')
+# Só formatos sem condição extra. Outros (ex.: "... por seguir a loja") não são anunciados.
+_RE_CUPOM_REGRA = re.compile(r"^(?:Compre R\$ ([\d.,]+) e )?ganhe (?:(\d+)%|R\$ ([\d.,]+)) OFF$", re.I)
+_RE_CUPOM_PRECO = re.compile(r"^R\$ ([\d.,]+) com Cupom$", re.I)
+
+
+def parse_cupons(html: str) -> list[dict]:
+    """Cupons listados na página do produto (sem repetidos): label, status, tipo e campanha."""
+    vistos, cupons = set(), []
+    for label, status, campanha, tipo in _RE_CUPOM.findall(html):
+        if campanha not in vistos:
+            vistos.add(campanha)
+            cupons.append({"label": label, "status": status, "campanha": campanha, "tipo": tipo})
+    return cupons
+
+
+def texto_cupom(o: Oferta, cupons: list[dict]) -> str | None:
+    """Texto do cupom para o post, ou None. Só anuncia cupom que vale para 1 unidade deste produto:
+    formato sem condição extra, compra mínima (se houver) atingida pelo preço e tipo sem "mínimo não atingido"."""
+    if not o.preco:
+        return None
+    melhor: tuple[float, str] | None = None     # (economia estimada em R$, texto)
+    for c in cupons:
+        if "NOT_MIN" in c["tipo"] or c["status"] not in ("unredeemed", "redeemed"):
+            continue
+        if m := _RE_CUPOM_PRECO.match(c["label"]):          # o ML informa o preço final com o cupom
+            final = parse_preco_br(m.group(1)) or 0.0
+            if not 0 < final < o.preco:
+                continue
+            economia, texto = o.preco - final, f"🎟 {preco_br(final)} com cupom (ative na página do produto)"
+        elif m := _RE_CUPOM_REGRA.match(c["label"]):
+            minimo = parse_preco_br(m.group(1)) or 0.0
+            if o.preco < minimo:
+                continue
+            if m.group(3):      # valor fixo: o preço final é exato
+                economia = parse_preco_br(m.group(3)) or 0.0
+                texto = f"🎟 Cupom de {preco_br(economia)} OFF → {preco_br(max(o.preco - economia, 0))} (ative na página do produto)"
+            else:               # percentual: o cupom pode ter teto de desconto, então não calculo o preço final
+                economia = o.preco * int(m.group(2)) / 100
+                texto = f"🎟 Cupom de {m.group(2)}% OFF"
+                if minimo:
+                    texto += f" em compras a partir de {preco_br(minimo)}"
+                texto += " (ative na página do produto)"
+        else:
+            continue
+        if melhor is None or economia > melhor[0]:
+            melhor = (economia, texto)
+    return melhor[1] if melhor else None
+
+
+def verificar_vendedores(ofertas: list[Oferta]) -> None:
+    """Abre a página de cada produto (mesmo navegador logado do Linkbuilder) e preenche os campos
+    de vendedor e o cupom. Falha em uma página não interrompe as outras (ela só fica sem dados)."""
+    from playwright.sync_api import sync_playwright
+
+    if not tem_sessao():
+        raise RuntimeError("Sessão do ML não encontrada — rode: uv run python -m ofertas ml-login")
+    pendentes = [o for o in ofertas if o.url_produto and not o.vendedor_checado]
+    if not pendentes:
+        return
+
+    with sync_playwright() as pw:
+        ctx = _abrir_contexto(pw, headless=True)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        try:
+            for o in pendentes:
+                dados, cupom = {}, None
+                try:
+                    page.goto(o.url_produto, wait_until="domcontentloaded", timeout=45000)
+                    page.wait_for_timeout(1500)
+                    if "login" in page.url or "account-verification" in page.url:
+                        raise RuntimeError("Sessão do ML expirou — rode de novo: uv run python -m ofertas ml-login")
+                    html = page.content()
+                    dados = parse_vendedor(html)
+                    cupom = texto_cupom(o, parse_cupons(html)) if config.buscar_cupons else None
+                except RuntimeError:
+                    raise
+                except Exception as e:
+                    log.warning("Não consegui ler o vendedor de '%s': %s", o.titulo[:40], type(e).__name__)
+                o.vendedor_checado = True
+                o.vendedor = dados.get("vendedor") or o.vendedor
+                o.vendedor_nivel = dados.get("nivel")
+                o.vendedor_status = dados.get("status")
+                o.loja_oficial = bool(dados.get("loja_oficial"))
+                o.vendas_vendedor = dados.get("vendas")
+                o.cupom = cupom
+            log.info("Mercado Livre: %d página(s) de produto conferida(s), %d com cupom válido",
+                     len(pendentes), sum(1 for o in pendentes if o.cupom))
         finally:
             ctx.close()
 

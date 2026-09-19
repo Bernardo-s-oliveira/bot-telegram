@@ -61,14 +61,14 @@ def _node_para_oferta(n: dict) -> Oferta:
     if preco and desconto and desconto < 100:
         preco_original = round(preco / (1 - desconto / 100), 2)
 
-    partes = []
-    if n.get("ratingStar"):
-        try:
-            partes.append(f"⭐ {float(n['ratingStar']):.1f}")
-        except (TypeError, ValueError):
-            pass
-    if n.get("sales"):
-        partes.append(f"{n['sales']} vendidos")
+    try:
+        nota = float(n.get("ratingStar") or 0) or None
+    except (TypeError, ValueError):
+        nota = None
+    try:
+        vendas = int(n.get("sales") or 0) or None
+    except (TypeError, ValueError):
+        vendas = None
 
     return Oferta(
         plataforma="shopee",
@@ -80,12 +80,13 @@ def _node_para_oferta(n: dict) -> Oferta:
         preco_original=preco_original,
         desconto_pct=desconto,
         imagem=n.get("imageUrl"),
-        extra=" · ".join(partes) or None,
+        nota=nota,
+        vendas=vendas,  # a API informa o total de vendas do produto
     )
 
 
 def _buscar_keyword(termo: str, limite: int) -> list[Oferta]:
-    query = (f'{{productOfferV2(keyword:"{termo}",sortType:{SORT_TYPE},page:1,limit:{limite})'
+    query = (f'{{productOfferV2(keyword:{json.dumps(termo)},sortType:{SORT_TYPE},page:1,limit:{limite})'
              f"{{nodes{{{_CAMPOS}}}}}}}")
     data = _chamar(query)
     nodes = (data.get("productOfferV2") or {}).get("nodes") or []
@@ -93,11 +94,12 @@ def _buscar_keyword(termo: str, limite: int) -> list[Oferta]:
 
 
 def buscar_ofertas(limite: int = 30) -> list[Oferta]:
-    """Busca ofertas por palavras-chave tech (config.yaml: fontes.shopee.buscas).
+    """Busca ofertas por palavras-chave (config.yaml: fontes.shopee.buscas), mais vendidos primeiro.
 
     listType:1 do productOfferV2 vem SEMPRE vazio (verificado 2026-08-29); por isso
-    usamos busca por keyword, que também mantém o foco tech do canal.
+    usamos busca por keyword.
     """
+    limite = limite if limite > 0 else 30  # `limite: 0` no config = padrão
     termos = config.fonte_shopee.get("buscas") or []
     if not termos:
         # sem termos configurados: cai na lista geral de destaque (listType:0)

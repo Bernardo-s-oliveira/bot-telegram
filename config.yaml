@@ -2,16 +2,63 @@
 
 geral:
   intervalo_minutos: 30        # de quanto em quanto tempo buscar ofertas novas
-  max_posts_por_ciclo: 10      # máximo de ofertas postadas por ciclo
+  max_posts_por_ciclo: 5       # MÁXIMO de ofertas por ciclo. Posta menos se faltar oferta boa (qualidade > quantidade)
   espacamento_segundos: 120    # pausa entre um post e outro no mesmo ciclo
-  nao_repetir_dias: 7          # não repostar o mesmo produto dentro desse prazo
+  nao_repetir_dias: 7          # não repostar o mesmo produto dentro desse prazo (exceto queda de preço, veja abaixo)
   horario_ativo: "08:00-23:00" # só posta nesse intervalo (hora do PC); "" = 24h
 
 filtros:
-  desconto_minimo: 25          # % mínimo de desconto para postar (ofertas automáticas)
+  desconto_minimo: 25          # % mínimo (VERIFICADO no histórico de preços) da faixa "maior desconto"
   preco_minimo: 0              # 0 = sem limite
   preco_maximo: 0              # 0 = sem limite
   palavras_bloqueadas: []      # ex: [capinha, película] — ignora ofertas com essas palavras
+
+# Variedade: depois de postar um tipo de produto (creatina, chuveiro, balança, fone…), o bot não posta
+# outro do mesmo tipo por esta janela, e nunca dois do mesmo tipo no mesmo ciclo. O tipo vem de um
+# dicionário de palavras (ofertas/tipos.py); produto que não casa com nada não sofre a regra.
+variedade:
+  janela_horas: 4              # 0 = desliga a regra entre ciclos (ainda evita repetir dentro do ciclo)
+  tipos_extras: {}             # ensina tipos novos, ex.:  cafeteira: [cafeteira, nespresso]
+
+# Post de divulgação: em vez de repetir link/hashtag em TODO post, o bot publica esta mensagem uma vez
+# a cada `a_cada_horas`, logo depois das ofertas de um ciclo. Texto puro (link e #hashtag ficam clicáveis).
+divulgacao:
+  ativa: true
+  a_cada_horas: 24
+  fixar: false                 # true = também fixa a mensagem no canal (o bot precisa poder fixar mensagens)
+  texto: |
+    📢 Gostou das ofertas? Compartilhe o canal com quem gosta de economizar:
+    https://t.me/cacador_promo
+
+    Garantiu sua compra com desconto?
+    Use #cacador_promo e compartilhe nas redes!
+
+# Como o bot escolhe o que postar (veja ofertas/selecao.py). Toda oferta passa pelos portões
+# de qualidade e cai em uma de duas faixas, que se alternam nos posts de cada ciclo:
+#   • campeões: muitas vendas + boa nota + preço em conta, mesmo com desconto modesto;
+#   • maior desconto: desconto grande, comprovado pelo histórico de preços, com prova social.
+# Para simular sem postar:  uv run python -m ofertas simular
+selecao:
+  exigir_avaliacao: true       # descarta produto sem nota (novo/sem prova) — protege o comprador
+  nota_minima: 4.3             # descarta produto com nota menor que isso (0–5)
+  prova_social_minima: 20      # faixa "desconto": mín. de vendas ou avaliações
+  rejeitar_desconto_falso: true  # descarta quando o "de" anunciado não bate com o histórico do bot
+  historico_dias: 30           # janela do histórico de preços (o bot passa a validar após ~1 dia de coleta)
+  repostar_se_queda_pct: 10    # repõe antes do prazo se o preço caiu tanto % desde o último post (0 = nunca)
+  vendas_mensal_para_total: 6  # Amazon só informa compras do último mês: multiplica por isso p/ comparar
+  # Descontos muito altos costumam ser "De" inflado, anúncio com preço errado ou vendedor duvidoso:
+  desconto_max_sem_historico: 50  # sem histórico de preço, NÃO posta desconto anunciado acima disso (espera o histórico)
+  desconto_suspeito: 60        # desconto comprovado a partir daqui exige vendedor confiável (ML) ou prova forte
+  suspeita_vendas_minimas: 5000  # prova forte p/ desconto suspeito onde não dá p/ checar o vendedor (Amazon/Shopee)
+  preco_minimo_vs_mercado_pct: 50  # descarta preço abaixo de X% do de anúncios iguais coletados no mesmo ciclo
+  verificar_vendedor: true     # ML: abre a página do produto (navegador logado) e confere a reputação do vendedor
+  vendedor_nivel_minimo: 4     # reputação mínima do vendedor no ML (1 vermelho … 5 verde)
+  buscar_cupons: true          # ML: lê os cupons na página do produto e avisa no post só os que valem para 1 unidade
+  campeoes:
+    vendas_minimas: 1000       # vendas mínimas (ML: faixa "+1000"; Amazon: mês × fator acima)
+    nota_minima: 4.5
+    desconto_minimo: 10        # % mínimo (verificado) — barato E em promoção de verdade
+    pct_dos_posts: 50          # % dos posts do ciclo reservado aos campeões (faixa vazia cede a vaga)
 
 # Por padrão o bot pega ofertas de TODAS as categorias.
 # JEITO FÁCIL de escolher um nicho: use o seletor "Categorias do canal" no PAINEL
@@ -20,7 +67,7 @@ filtros:
 fontes:
   mercadolivre:
     ativa: true
-    paginas: 1                 # páginas de mercadolivre.com.br/ofertas por categoria (~48 itens cada)
+    paginas: 3                 # páginas de mercadolivre.com.br/ofertas por categoria (~48 itens cada); mais páginas = mais candidatas
     categorias: {}             # vazio = todas as categorias.
     # Para um nicho, troque por (id: nome). Exemplos de categorias do Mercado Livre:
     #   MLB1648: Informática
