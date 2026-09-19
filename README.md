@@ -91,6 +91,31 @@ Cole um link de produto no privado do bot para testar, ou espere o primeiro cicl
 
 ---
 
+## Como o bot escolhe as ofertas
+
+O objetivo não é postar o maior desconto, e sim a **melhor compra**. Cada oferta coletada passa por:
+
+1. **Portões de qualidade** — descarta produto sem avaliação, com nota baixa (< 4,3) ou sem preço.
+2. **Validação do desconto** — o bot guarda o histórico de preço de tudo que coleta. Depois de ~1 dia de coleta, ele compara o preço com o que o produto realmente custou: "desconto" inflado (o "de" nunca existiu) é descartado, e o post mostra o desconto **comprovado** ("✅ 27% abaixo do preço médio dos últimos 14 dias"; "📉 Menor preço dos últimos 30 dias"). Nas primeiras horas ele ainda confia no desconto anunciado pela loja.
+   **Descontos muito altos** (o "De" inflado, o preço errado, o vendedor duvidoso) têm tratamento extra:
+   - o "De" só aparece no post (❌ De / ✅ Por) quando o histórico o comprova; sem histórico, o post diz **"🏷 Loja anuncia -N% (de R$ X)"**, sem apresentar como fato;
+   - sem histórico, desconto anunciado **acima de 50%** não é postado — o produto continua sendo acompanhado e é reavaliado quando o histórico existir;
+   - se anúncios iguais coletados no mesmo ciclo custam bem mais do que o "De" sugere, o desconto é descartado como inflado; preço abaixo de 50% dos anúncios iguais é descartado como suspeito;
+   - desconto comprovado de **60% ou mais** só passa com vendedor confiável. No Mercado Livre o bot abre a página do produto (com o mesmo navegador logado do Linkbuilder) e confere a reputação: exige nível ≥ 4 e, nesses casos, MercadoLíder Gold/Platinum ou loja oficial — se reprovar, entra o próximo melhor. Na Amazon e na Shopee, onde não dá para ler o vendedor, exige prova forte (≥ 5.000 vendas e nota ≥ 4,6).
+   - vendedor confiável ganha selo no post ("🛡️ Loja oficial", "🏅 Vendedor MercadoLíder Platinum").
+3. **Duas faixas**, que se alternam nos posts de cada ciclo:
+   - **Campeões** — muitas vendas + nota ≥ 4,5 + preço em conta, mesmo com desconto modesto (≥ 10%);
+   - **Maior desconto** — desconto ≥ 25% comprovado, com prova social (vendas/avaliações).
+4. **Score** — dentro de cada faixa, ordena por vendas, nota (com peso menor se há poucas avaliações), desconto, preço vs. histórico e preço absoluto. Sem repetir o mesmo produto (nem em outra cor/loja) e sem uma plataforma dominar o ciclo.
+
+Se não houver oferta boa o bastante, o bot **posta menos** em vez de completar a cota. Um produto já postado só volta antes de 7 dias se o preço caiu 10% ou mais desde o último post.
+
+Para ver o que ele postaria agora, sem postar nada (e alimentar o histórico de preços):
+```powershell
+uv run python -m ofertas simular
+```
+Todos os critérios estão na seção `selecao:` do `config.yaml`. Os testes: `uv run --with pytest python -m pytest tests`.
+
 ## Ajustes — `config.yaml`
 Intervalo entre ciclos, quantos posts por vez, desconto mínimo, horário ativo e o **escopo do canal**. Por padrão o bot pega **ofertas de todas as categorias**. Para focar num nicho (tecnologia, moda, casa, pet…), preencha as listas de `categorias`/`departamentos`/`buscas` no `config.yaml` — há exemplos comentados dentro do arquivo. Edite e **reinicie o bot** (ele só lê a configuração ao iniciar).
 
@@ -125,9 +150,10 @@ Os sites mudam de layout de vez em quando. Refaça o `ml-login` (a sessão pode 
 ofertas/
 ├── main.py            # comandos (check, run, converter, postar, ml-login, testar)
 ├── bot_interativo.py  # bot do Telegram (conversor + agendador)
-├── pipeline.py        # coleta → filtros → gera links → posta
+├── pipeline.py        # coleta → filtros → escolhe → gera links → posta
+├── selecao.py         # qualidade, validação do desconto, faixas e score
 ├── formatter.py       # visual do post
-├── db.py              # banco anti-repetição
+├── db.py              # banco: anti-repetição + histórico de preços
 ├── config.py          # lê .env + config.yaml
 └── sources/           # mercadolivre.py, shopee.py, amazon.py
 ```

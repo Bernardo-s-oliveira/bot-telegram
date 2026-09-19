@@ -16,9 +16,11 @@ from bs4 import BeautifulSoup
 
 from ..config import DATA_DIR, config
 from ..models import Oferta
-from ..utils import parse_preco_br, sessao
+from ..utils import parse_contagem, parse_nota, parse_preco_br, sessao
 
 log = logging.getLogger("ofertas.amazon")
+
+_RE_COMPRAS_MES = re.compile(r"([\d.,]+\s*(?:mil|M|mi)?)\s*compras\s+no\s+m[êe]s\s+passado", re.I)
 
 TOKEN_URL = "https://api.amazon.com/auth/o2/token"  # grupo NA (inclui amazon.com.br)
 API_BASE = "https://creatorsapi.amazon/catalog/v1/"
@@ -149,6 +151,9 @@ URL_BUSCA = "https://www.amazon.com.br/s"
 # filtra a listagem para itens em promoção. Sondagem 2026-08-22 (computers): os dois primeiros
 # vieram 24/24 com desconto, o terceiro 17/24; 210771958011 veio fraco (9/24) e ficou de fora.
 DEAL_TYPES = ["23565492011", "23565493011", "210771957011"]
+# Parâmetro `s` da busca: ordena por popularidade. Sondagem 2026-09-19: o topo da lista vem com
+# 4 mil–10 mil "compras no mês passado", contra 0–9 mil na ordem padrão.
+ORDEM_POPULARIDADE = "exact-aware-popularity-rank"
 _sessao_amz: requests.Session | None = None
 _rodizio = 0
 
@@ -192,13 +197,15 @@ def _card_para_oferta(card) -> Oferta | None:
     if preco is None or (preco_original is not None and preco_original <= preco):
         preco_original = None  # sem preço atual, ou "riscado" que não é desconto de verdade
 
-    partes = []
     el = card.select_one("span.a-icon-alt")
-    if el:
-        m = re.match(r"([\d,]+)", el.get_text(strip=True))
-        if m:
-            partes.append(f"⭐ {m.group(1)}")
+    nota = parse_nota(el.get_text(strip=True)) if el else None          # "4,8 de 5 estrelas"
+    el = card.select_one("span.a-size-base.s-underline-text")
+    avaliacoes = parse_contagem(el.get_text(strip=True)) if el else None  # "(2 mil)"
     texto = card.get_text(" ", strip=True)
+    m = _RE_COMPRAS_MES.search(texto)                                     # "Mais de 2 mil compras no mês passado"
+    vendas = parse_contagem(m.group(1)) if m else None
+
+    partes = []
     if card.select_one("i.a-icon-prime"):
         partes.append("Prime")
     for rotulo, selo in (("Mais vendido", "🏆 Mais vendido"), ("Escolha da Amazon", "✔️ Escolha da Amazon"),
@@ -220,6 +227,10 @@ def _card_para_oferta(card) -> Oferta | None:
         preco_original=preco_original,
         imagem=_imagem_grande(img.get("src")) if img else None,
         extra=" · ".join(partes) or None,
+        nota=nota,
+        avaliacoes=avaliacoes,
+        vendas=vendas,
+        vendas_mensal=True,
     )
 
 
@@ -245,15 +256,25 @@ def _tarefas() -> list[dict]:
     """
     tarefas = []
     for alias, nome in _departamentos().items():
-        for n, deal in enumerate(DEAL_TYPES, 1):
-            tarefas.append({"rotulo": f"ofertas de {nome} ({n}/{len(DEAL_TYPES)})",
-                            "params": {"i": alias, "rh": f"p_n_deal_type:{deal}"}})
+        tarefas += _tarefas_de_ofertas(f"ofertas de {nome}", alias)
     for termo in (config.fonte_amazon.get("buscas") or []):
         tarefas.append({"rotulo": f"busca '{termo}'", "params": {"k": str(termo)}})
     if not tarefas:
-        for n, deal in enumerate(DEAL_TYPES, 1):
-            tarefas.append({"rotulo": f"ofertas gerais ({n}/{len(DEAL_TYPES)})",
-                            "params": {"i": "aps", "rh": f"p_n_deal_type:{deal}"}})
+        tarefas = _tarefas_de_ofertas("ofertas gerais", "aps")
+    return tarefas
+
+
+def _tarefas_de_ofertas(rotulo: str, indice: str) -> list[dict]:
+    """Páginas de ofertas de um departamento: a 1ª na ordem padrão (maiores descontos aparecem
+    cedo) e as demais ordenadas por popularidade — é onde estão os campeões de compras."""
+    tarefas = []
+    for n, deal in enumerate(DEAL_TYPES, 1):
+        params = {"i": indice, "rh": f"p_n_deal_type:{deal}"}
+        if n > 1:
+            params["s"] = ORDEM_POPULARIDADE
+        tarefas.append({"rotulo": f"{rotulo} ({n}/{len(DEAL_TYPES)})", "params": params})
+    tarefas.append({"rotulo": f"{rotulo} (mais populares)",
+                    "params": {"i": indice, "rh": f"p_n_deal_type:{DEAL_TYPES[0]}", "s": ORDEM_POPULARIDADE}})
     return tarefas
 
 
@@ -309,7 +330,11 @@ def buscar_ofertas() -> list[Oferta]:
         try:
             ofertas = _buscar_por_api()
             log.info("Amazon (Creators API): %d ofertas", len(ofertas))
-            return ofertas
+            if not any(o.nota for o in ofertas):
+                # a seleção exige nota/vendas, que só o scraping traz; sem isso tudo seria rejeitado
+                log.warning("Amazon (Creators API) sem notas de avaliação — usando scraping")
+            else:
+                return ofertas
         except Exception as e:
             if "AssociateNotEligible" in str(e):
                 _api_bloqueada_ate = time.time() + 6 * 3600

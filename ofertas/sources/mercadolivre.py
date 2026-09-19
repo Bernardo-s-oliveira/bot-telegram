@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup
 
 from ..config import DATA_DIR, config
 from ..models import Oferta
-from ..utils import USER_AGENT, parse_preco_br, sessao
+from ..utils import USER_AGENT, parse_contagem, parse_nota, parse_preco_br, sessao
 
 log = logging.getLogger("ofertas.ml")
 
@@ -104,10 +104,11 @@ def _parse_card(card) -> Oferta | None:
     if imagem and imagem.startswith("data:"):
         imagem = None  # placeholder de lazy-load
 
+    nota, vendas = _parse_review(card.select_one(".poly-component__review-compacted"))
+    el = card.select_one(".poly-component__seller")
+    vendedor = el.get_text(" ", strip=True) if el else None
+
     partes = []
-    review = card.select_one(".poly-component__review-compacted")
-    if review:
-        partes.append("⭐ " + re.sub(r"\s*\|\s*", " · ", review.get_text(" ", strip=True)))
     if "Frete grátis" in card.get_text():
         partes.append("🚚 Frete grátis")
     pix = card.select_one(".poly-price__unit-description")
@@ -125,7 +126,22 @@ def _parse_card(card) -> Oferta | None:
         desconto_pct=desconto,
         imagem=imagem,
         extra=" · ".join(partes) or None,
+        nota=nota,
+        vendas=vendas,
+        vendedor=vendedor,
     )
+
+
+_RE_VENDIDOS = re.compile(r"([\d.,]+\s*(?:mil|M|mi)?)\s*vendidos", re.I)
+
+
+def _parse_review(el) -> tuple[float | None, int | None]:
+    """Bloco de avaliação do card ("4.9 | +10mil vendidos") -> (nota, vendas mínimas)."""
+    if not el:
+        return None, None
+    texto = el.get_text(" ", strip=True)
+    m = _RE_VENDIDOS.search(texto)
+    return parse_nota(texto.split("|")[0]), (parse_contagem(m.group(1)) if m else None)
 
 
 def _parse_pagina(html: str) -> list[Oferta]:
@@ -286,6 +302,74 @@ def gerar_links_afiliado(ofertas: list[Oferta]) -> None:
                 for o, link in zip(lote, links):
                     o.url_afiliado = link
             log.info("Mercado Livre: %d links de afiliado gerados", len(pendentes))
+        finally:
+            ctx.close()
+
+
+# ── Reputação do vendedor (página do produto, navegador logado) ──────
+
+# Bloco de tracking da página do produto, específico do anúncio (verificado em 2026-09-19), ex.:
+# "event_data":{"seller_id":510386964,"seller_name":"Casa Dalonso","reputation_level":"5_green",
+#               "power_seller_status":"platinum","official_store_id":5361,...
+_RE_SELLER = re.compile(r'"seller_id":(\d+),"seller_name":"([^"]*)"(.{0,400})', re.S)
+_RE_NIVEL = re.compile(r'"reputation_level":"(\d)_')
+_RE_STATUS = re.compile(r'"power_seller_status":"(\w+)"')
+_RE_LOJA_OFICIAL = re.compile(r'"official_store_id":\d+')
+
+
+def parse_vendedor(html: str) -> dict:
+    """Dados do vendedor do anúncio a partir do HTML da página do produto. {} se não achar."""
+    m = _RE_SELLER.search(html)
+    if not m:
+        return {}
+    trecho = m.group(3)
+    nivel, status = _RE_NIVEL.search(trecho), _RE_STATUS.search(trecho)
+    soup = BeautifulSoup(html, "lxml")
+    vendas = soup.select_one(".ui-pdp-seller__header__subtitle")
+    rotulo = soup.select_one(".ui-pdp-seller__label-sold")
+    return {
+        "vendedor": m.group(2),
+        "nivel": int(nivel.group(1)) if nivel else None,
+        "status": status.group(1) if status else None,
+        "loja_oficial": bool(_RE_LOJA_OFICIAL.search(trecho)) or (rotulo is not None and "oficial" in rotulo.get_text().lower()),
+        "vendas": parse_contagem(vendas.get_text(" ", strip=True)) if vendas and "venda" in vendas.get_text().lower() else None,
+    }
+
+
+def verificar_vendedores(ofertas: list[Oferta]) -> None:
+    """Abre a página de cada produto (mesmo navegador logado do Linkbuilder) e preenche os campos
+    de vendedor. Falha em uma página não interrompe as outras (ela só fica sem dados)."""
+    from playwright.sync_api import sync_playwright
+
+    if not tem_sessao():
+        raise RuntimeError("Sessão do ML não encontrada — rode: uv run python -m ofertas ml-login")
+    pendentes = [o for o in ofertas if o.url_produto and not o.vendedor_checado]
+    if not pendentes:
+        return
+
+    with sync_playwright() as pw:
+        ctx = _abrir_contexto(pw, headless=True)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        try:
+            for o in pendentes:
+                dados = {}
+                try:
+                    page.goto(o.url_produto, wait_until="domcontentloaded", timeout=45000)
+                    page.wait_for_timeout(1500)
+                    if "login" in page.url or "account-verification" in page.url:
+                        raise RuntimeError("Sessão do ML expirou — rode de novo: uv run python -m ofertas ml-login")
+                    dados = parse_vendedor(page.content())
+                except RuntimeError:
+                    raise
+                except Exception as e:
+                    log.warning("Não consegui ler o vendedor de '%s': %s", o.titulo[:40], type(e).__name__)
+                o.vendedor_checado = True
+                o.vendedor = dados.get("vendedor") or o.vendedor
+                o.vendedor_nivel = dados.get("nivel")
+                o.vendedor_status = dados.get("status")
+                o.loja_oficial = bool(dados.get("loja_oficial"))
+                o.vendas_vendedor = dados.get("vendas")
+            log.info("Mercado Livre: %d vendedor(es) conferido(s)", len(pendentes))
         finally:
             ctx.close()
 
