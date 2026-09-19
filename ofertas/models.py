@@ -28,6 +28,10 @@ class Oferta:
     loja_oficial: bool = False
     vendedor_checado: bool = False         # já tentamos ler o vendedor (mesmo que sem sucesso)
 
+    # Cupom (Mercado Livre): texto do post, só preenchido depois de conferir na página do produto
+    # que o cupom vale para 1 unidade (não há código: o comprador ativa na página)
+    cupom: str | None = None
+
     # Referência de preço de anúncios parecidos coletados no mesmo ciclo (pipeline.anotar_preco_mercado)
     preco_mercado: float | None = None
 

@@ -39,9 +39,10 @@ def test_variacoes_do_mesmo_produto_so_entram_uma_vez():
 
 
 def test_produtos_genericos_diferentes_nao_sao_confundidos():
+    # produtos sem tipo conhecido (a regra de variedade não se aplica): só a similaridade de título decide
     ofertas = [
-        aprovada("Fone de Ouvido Bluetooth Sem Fio TWS", 0.9, "campeao", id_produto="a"),
-        aprovada("Fone de Ouvido Bluetooth Gamer RGB", 0.8, "campeao", id_produto="b"),
+        aprovada("Jogo Educativo Infantil Matemática Divertida", 0.9, "campeao", id_produto="a"),
+        aprovada("Jogo Educativo Infantil Alfabeto Divertido", 0.8, "campeao", id_produto="b"),
     ]
     assert len(pipeline.escolher(ofertas, 2)) == 2
 

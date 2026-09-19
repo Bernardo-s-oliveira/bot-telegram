@@ -103,10 +103,16 @@ O objetivo não é postar o maior desconto, e sim a **melhor compra**. Cada ofer
    - se anúncios iguais coletados no mesmo ciclo custam bem mais do que o "De" sugere, o desconto é descartado como inflado; preço abaixo de 50% dos anúncios iguais é descartado como suspeito;
    - desconto comprovado de **60% ou mais** só passa com vendedor confiável. No Mercado Livre o bot abre a página do produto (com o mesmo navegador logado do Linkbuilder) e confere a reputação: exige nível ≥ 4 e, nesses casos, MercadoLíder Gold/Platinum ou loja oficial — se reprovar, entra o próximo melhor. Na Amazon e na Shopee, onde não dá para ler o vendedor, exige prova forte (≥ 5.000 vendas e nota ≥ 4,6).
    - vendedor confiável ganha selo no post ("🛡️ Loja oficial", "🏅 Vendedor MercadoLíder Platinum").
+   **Cupons (Mercado Livre):** na mesma visita à página do produto, o bot lê os cupons e adiciona ao post uma linha como *"🎟 R$ 106,32 com cupom (ative na página do produto)"*. Só anuncia cupom que vale para **1 unidade**: o "20% OFF com Cupom" que aparece na listagem muitas vezes exige compra mínima acima do preço do item, ou só vale "por seguir a loja" — esses são ignorados. O ML não usa código: o comprador ativa o cupom na própria página. Desligue com `buscar_cupons: false`. Amazon e Shopee ficam sem cupom (não há dado confiável nas páginas que o bot lê).
 3. **Duas faixas**, que se alternam nos posts de cada ciclo:
    - **Campeões** — muitas vendas + nota ≥ 4,5 + preço em conta, mesmo com desconto modesto (≥ 10%);
    - **Maior desconto** — desconto ≥ 25% comprovado, com prova social (vendas/avaliações).
 4. **Score** — dentro de cada faixa, ordena por vendas, nota (com peso menor se há poucas avaliações), desconto, preço vs. histórico e preço absoluto. Sem repetir o mesmo produto (nem em outra cor/loja) e sem uma plataforma dominar o ciclo.
+
+**Variedade e apresentação:**
+- O bot não repete o mesmo **tipo de produto** (creatina, chuveiro, balança, fone…) numa janela de horas (`variedade.janela_horas`, padrão 4) nem dentro do mesmo ciclo. O tipo vem de um dicionário de palavras em `ofertas/tipos.py`; produto que não casa com nada não sofre a regra (ex.: livros). Para ensinar tipos novos: `variedade.tipos_extras` no `config.yaml`.
+- Os títulos das lojas (muitas vezes com 150+ caracteres) saem curtos: cortados num separador natural ou em fim de palavra (~75 caracteres), sem conectivo pendurado e sem código de modelo no início ("Eps-6905 Balança…" vira "Balança…").
+- Link e hashtag do canal **não** vão em cada post: uma mensagem de divulgação (`divulgacao.texto`) é publicada uma vez a cada 24 h, depois das ofertas de um ciclo. Dá para desligar (`ativa: false`), mudar o intervalo ou fixá-la no canal (`fixar: true`, exige permissão de fixar mensagens).
 
 Se não houver oferta boa o bastante, o bot **posta menos** em vez de completar a cota. Um produto já postado só volta antes de 7 dias se o preço caiu 10% ou mais desde o último post.
 

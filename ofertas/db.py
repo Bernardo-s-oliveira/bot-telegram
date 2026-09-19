@@ -27,6 +27,7 @@ def _conn():
             " preco REAL,"
             " postada_em TEXT)"
         )
+        c.execute("CREATE TABLE IF NOT EXISTS estado (chave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
         c.execute("CREATE TABLE IF NOT EXISTS precos (uid TEXT NOT NULL, preco REAL NOT NULL, em TEXT NOT NULL)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_precos_uid ON precos (uid, em)")
         yield c
@@ -68,6 +69,24 @@ def registrar(oferta: Oferta) -> None:
             (oferta.uid, oferta.plataforma, oferta.titulo, oferta.preco,
              dt.datetime.now().isoformat(timespec="seconds")),
         )
+
+
+def titulos_postados_desde(horas: float, agora: dt.datetime | None = None) -> list[str]:
+    """Títulos postados nas últimas `horas` (para a regra de variedade)."""
+    desde = ((agora or dt.datetime.now()) - dt.timedelta(hours=horas)).isoformat(timespec="seconds")
+    with _conn() as c:
+        return [t for (t,) in c.execute("SELECT titulo FROM postadas WHERE postada_em >= ?", (desde,))]
+
+
+def ler_estado(chave: str) -> str | None:
+    with _conn() as c:
+        row = c.execute("SELECT valor FROM estado WHERE chave = ?", (chave,)).fetchone()
+    return row[0] if row else None
+
+
+def gravar_estado(chave: str, valor: str) -> None:
+    with _conn() as c:
+        c.execute("INSERT OR REPLACE INTO estado (chave, valor) VALUES (?, ?)", (chave, valor))
 
 
 def total_postadas() -> int:

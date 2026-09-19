@@ -13,6 +13,26 @@ filtros:
   preco_maximo: 0              # 0 = sem limite
   palavras_bloqueadas: []      # ex: [capinha, película] — ignora ofertas com essas palavras
 
+# Variedade: depois de postar um tipo de produto (creatina, chuveiro, balança, fone…), o bot não posta
+# outro do mesmo tipo por esta janela, e nunca dois do mesmo tipo no mesmo ciclo. O tipo vem de um
+# dicionário de palavras (ofertas/tipos.py); produto que não casa com nada não sofre a regra.
+variedade:
+  janela_horas: 4              # 0 = desliga a regra entre ciclos (ainda evita repetir dentro do ciclo)
+  tipos_extras: {}             # ensina tipos novos, ex.:  cafeteira: [cafeteira, nespresso]
+
+# Post de divulgação: em vez de repetir link/hashtag em TODO post, o bot publica esta mensagem uma vez
+# a cada `a_cada_horas`, logo depois das ofertas de um ciclo. Texto puro (link e #hashtag ficam clicáveis).
+divulgacao:
+  ativa: true
+  a_cada_horas: 24
+  fixar: false                 # true = também fixa a mensagem no canal (o bot precisa poder fixar mensagens)
+  texto: |
+    📢 Gostou das ofertas? Compartilhe o canal com quem gosta de economizar:
+    https://t.me/cacador_promo
+
+    Garantiu sua compra com desconto?
+    Use #cacador_promo e compartilhe nas redes!
+
 # Como o bot escolhe o que postar (veja ofertas/selecao.py). Toda oferta passa pelos portões
 # de qualidade e cai em uma de duas faixas, que se alternam nos posts de cada ciclo:
 #   • campeões: muitas vendas + boa nota + preço em conta, mesmo com desconto modesto;
@@ -33,6 +53,7 @@ selecao:
   preco_minimo_vs_mercado_pct: 50  # descarta preço abaixo de X% do de anúncios iguais coletados no mesmo ciclo
   verificar_vendedor: true     # ML: abre a página do produto (navegador logado) e confere a reputação do vendedor
   vendedor_nivel_minimo: 4     # reputação mínima do vendedor no ML (1 vermelho … 5 verde)
+  buscar_cupons: true          # ML: lê os cupons na página do produto e avisa no post só os que valem para 1 unidade
   campeoes:
     vendas_minimas: 1000       # vendas mínimas (ML: faixa "+1000"; Amazon: mês × fator acima)
     nota_minima: 4.5

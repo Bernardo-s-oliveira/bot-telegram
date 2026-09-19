@@ -14,6 +14,7 @@ from .config import config, dentro_do_horario
 from .formatter import preco_br
 from .models import Oferta
 from .sources import amazon, mercadolivre, shopee
+from .tipos import tipo_do_produto
 from .telegram_poster import postar_oferta
 
 log = logging.getLogger("ofertas.pipeline")
@@ -77,6 +78,14 @@ def _repostagens_permitidas(ofertas: list[Oferta]) -> dict[str, float | None]:
     return liberadas
 
 
+def _tipos_recentes() -> set[str]:
+    """Tipos de produto (tipos.py) postados nas últimas `variedade.janela_horas` horas."""
+    if config.variedade_janela_horas <= 0:
+        return set()
+    titulos = db.titulos_postados_desde(config.variedade_janela_horas)
+    return {t for t in (tipo_do_produto(x) for x in titulos) if t}
+
+
 def filtrar_detalhado(ofertas: list[Oferta]) -> tuple[list[Oferta], dict[str, int]]:
     """Filtros básicos + avaliação de qualidade (selecao.py). Retorna (aprovadas, motivos de rejeição)."""
     rejeicoes: dict[str, int] = {}
@@ -102,6 +111,15 @@ def filtrar_detalhado(ofertas: list[Oferta]) -> tuple[list[Oferta], dict[str, in
     nao_repetidas = [o for o in candidatas if o.uid in liberadas]
     if len(nao_repetidas) < len(candidatas):
         rejeicoes["já postada"] = len(candidatas) - len(nao_repetidas)
+
+    # variedade: tipo de produto já postado há pouco fica de fora (repostagem por queda de preço é exceção)
+    recentes = _tipos_recentes()
+    if recentes:
+        variadas = [o for o in nao_repetidas
+                    if liberadas.get(o.uid) or tipo_do_produto(o.titulo) not in recentes]
+        if len(variadas) < len(nao_repetidas):
+            rejeicoes["tipo postado há pouco"] = len(nao_repetidas) - len(variadas)
+        nao_repetidas = variadas
 
     historicos = db.historico([o.uid for o in nao_repetidas], config.historico_dias)
     aprovadas, motivos = selecao.avaliar_todas(nao_repetidas, historicos)
@@ -145,22 +163,28 @@ def anotar_preco_mercado(ofertas: list[Oferta], min_pares: int = 2, similaridade
 
 
 def _selecionar(candidatas: list[Oferta], k: int, ja: list[frozenset[str]],
-                por_plataforma: Counter, teto: int) -> list[Oferta]:
-    """Até `k` melhores por score, sem repetir produto (`ja`) e sem deixar uma plataforma
-    passar de `teto` posts — o teto só é relaxado se faltar oferta."""
+                por_plataforma: Counter, teto: int, tipos: set[str]) -> list[Oferta]:
+    """Até `k` melhores por score, sem repetir produto (`ja`), sem repetir tipo de produto (`tipos`, que
+    vale também para as outras chamadas do ciclo) e sem deixar uma plataforma passar de `teto` posts —
+    o teto de plataforma só é relaxado se faltar oferta; o de tipo, nunca."""
     achadas: list[Oferta] = []
     adiadas: list[tuple[Oferta, frozenset[str]]] = []
 
     def tomar(o: Oferta, t: frozenset[str]) -> None:
         ja.append(t)
         por_plataforma[o.plataforma] += 1
+        if tipo := tipo_do_produto(o.titulo):
+            tipos.add(tipo)
         achadas.append(o)
+
+    def tipo_repetido(o: Oferta) -> bool:
+        return tipo_do_produto(o.titulo) in tipos
 
     for o in sorted(candidatas, key=lambda o: o.score, reverse=True):
         if len(achadas) >= k:
             break
         t = _tokens(o.titulo)
-        if any(_parecido(t, v) for v in ja):
+        if any(_parecido(t, v) for v in ja) or tipo_repetido(o):
             continue
         if por_plataforma[o.plataforma] >= teto:
             adiadas.append((o, t))
@@ -169,7 +193,7 @@ def _selecionar(candidatas: list[Oferta], k: int, ja: list[frozenset[str]],
     for o, t in adiadas:
         if len(achadas) >= k:
             break
-        if not any(_parecido(t, v) for v in ja):
+        if not any(_parecido(t, v) for v in ja) and not tipo_repetido(o):
             tomar(o, t)
     return achadas
 
@@ -179,17 +203,18 @@ def escolher(ofertas: list[Oferta], n: int) -> list[Oferta]:
     descontos verificados. Faixa sem candidatas cede a vaga à outra; os posts saem intercalados."""
     ja: list[frozenset[str]] = []
     por_plataforma: Counter = Counter()
+    tipos: set[str] = set()
     teto = max(1, math.ceil(n * 0.6))
 
     campeoes = _selecionar([o for o in ofertas if o.faixa == "campeao"],
-                           round(n * config.campeoes_pct_posts / 100), ja, por_plataforma, teto)
+                           round(n * config.campeoes_pct_posts / 100), ja, por_plataforma, teto, tipos)
     descontos = _selecionar([o for o in ofertas if o.faixa == "desconto"],
-                            n - len(campeoes), ja, por_plataforma, teto)
+                            n - len(campeoes), ja, por_plataforma, teto, tipos)
     faltam = n - len(campeoes) - len(descontos)
     if faltam > 0:  # sobrou vaga: qualquer faixa pode preenchê-la
         usadas = {id(o) for o in campeoes + descontos}
         descontos += _selecionar([o for o in ofertas if id(o) not in usadas],
-                                 faltam, ja, por_plataforma, teto)
+                                 faltam, ja, por_plataforma, teto, tipos)
 
     intercaladas: list[Oferta] = []
     for par in itertools.zip_longest(campeoes, descontos):
@@ -205,7 +230,7 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True) -> 
     anotar_preco_mercado(brutas)
     boas, rejeicoes = filtrar_detalhado(brutas)
     escolhidas = escolher(boas, n)
-    if not (checar_vendedores and config.verificar_vendedor):
+    if not (checar_vendedores and (config.verificar_vendedor or config.buscar_cupons)):
         return escolhidas, rejeicoes
 
     for _ in range(4):
@@ -220,7 +245,7 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True) -> 
                 o.vendedor_checado = True   # sem dados: só desconto suspeito é barrado
         reprovadas = []
         for o in pendentes:
-            motivo = selecao.avaliar_vendedor(o)
+            motivo = selecao.avaliar_vendedor(o) if config.verificar_vendedor else None
             if motivo:
                 log.info("Vendedor reprovado — %s: %s", o.titulo[:50], motivo)
                 chave = motivo.split(" (")[0]
@@ -233,7 +258,9 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True) -> 
         if not reprovadas:
             break
     # esgotou as rodadas com candidatos ainda sem checagem: os suspeitos não passam sem ela
-    escolhidas = [o for o in escolhidas if not (o.suspeita and o.plataforma == "mercadolivre" and not o.vendedor_checado)]
+    if config.verificar_vendedor:
+        escolhidas = [o for o in escolhidas
+                      if not (o.suspeita and o.plataforma == "mercadolivre" and not o.vendedor_checado)]
     return escolhidas, rejeicoes
 
 
@@ -245,6 +272,32 @@ async def avisar_dono(bot: Bot, texto: str) -> None:
         await bot.send_message(config.owner_id, texto)
     except Exception as e:
         log.warning("Não consegui avisar o dono: %s", e)
+
+
+_CHAVE_DIVULGACAO = "divulgacao_em"
+
+
+async def divulgar_canal(bot: Bot, agora: dt.datetime | None = None) -> bool:
+    """Publica o texto de divulgação do canal (config `divulgacao`) se já passou `a_cada_horas` desde a
+    última vez. Assim link e hashtag aparecem uma vez por período, e não em todo post. Retorna se publicou."""
+    if not (config.divulgacao_ativa and config.divulgacao_texto and config.chat_id):
+        return False
+    agora = agora or dt.datetime.now()
+    ultima = db.ler_estado(_CHAVE_DIVULGACAO)
+    if ultima and agora - dt.datetime.fromisoformat(ultima) < dt.timedelta(hours=config.divulgacao_a_cada_horas):
+        return False
+    try:
+        msg = await bot.send_message(config.chat_id, config.divulgacao_texto, disable_web_page_preview=True)
+    except Exception as e:
+        log.warning("Não consegui publicar o post de divulgação: %s", e)
+        return False
+    db.gravar_estado(_CHAVE_DIVULGACAO, agora.isoformat(timespec="seconds"))
+    if config.divulgacao_fixar:
+        try:
+            await bot.pin_chat_message(config.chat_id, msg.message_id, disable_notification=True)
+        except Exception as e:  # o bot precisa da permissão de fixar mensagens no canal
+            log.warning("Não consegui fixar o post de divulgação: %s", e)
+    return True
 
 
 async def executar_ciclo(bot: Bot) -> int:
@@ -285,5 +338,7 @@ async def executar_ciclo(bot: Bot) -> int:
         if o is not escolhidas[-1]:
             await asyncio.sleep(config.espacamento_segundos)
 
+    if postadas:
+        await divulgar_canal(bot)
     log.info("Ciclo: %d coletadas, %d escolhidas, %d postadas", len(brutas), len(escolhidas), postadas)
     return postadas

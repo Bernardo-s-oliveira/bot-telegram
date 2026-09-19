@@ -123,7 +123,7 @@ def test_post_nao_apresenta_de_como_fato_sem_historico():
 def test_post_mostra_de_e_por_quando_o_historico_comprova():
     o = Oferta("mercadolivre", "1", "Chuveiro", "x", preco=102.66, preco_original=130.0, desconto_verificado=True)
     texto = montar_caption(o)
-    assert "❌ De: <s>R$ 130,00</s>" in texto and "✅ Por: <b>R$ 102,66</b>" in texto and "-21%" in texto
+    assert "❌ De: <s>R$ 130,00</s>" in texto and "💰 Por: <b>R$ 102,66</b>" in texto and "-21%" in texto
 
 
 # ── leitura do vendedor na página do produto (trechos do bloco de tracking, 2026-09-19) ──

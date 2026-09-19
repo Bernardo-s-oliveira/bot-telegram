@@ -71,11 +71,28 @@ class Config:
         self.suspeita_vendas_minimas: int = int(sel.get("suspeita_vendas_minimas", 5000))
         self.preco_minimo_vs_mercado_pct: int = int(sel.get("preco_minimo_vs_mercado_pct", 50))
         self.verificar_vendedor: bool = bool(sel.get("verificar_vendedor", True))
+        self.buscar_cupons: bool = bool(sel.get("buscar_cupons", True))
         self.vendedor_nivel_minimo: int = int(sel.get("vendedor_nivel_minimo", 4))
         self.campeoes_vendas_minimas: int = int(camp.get("vendas_minimas", 1000))
         self.campeoes_nota_minima: float = float(camp.get("nota_minima", 4.5))
         self.campeoes_desconto_minimo: int = int(camp.get("desconto_minimo", 10))
         self.campeoes_pct_posts: int = max(0, min(100, int(camp.get("pct_dos_posts", 50))))
+
+        # Variedade: não repete o mesmo TIPO de produto (ofertas/tipos.py) numa janela de horas
+        var = y.get("variedade") or {}
+        self.variedade_janela_horas: float = float(var.get("janela_horas", 4))
+        try:
+            from .tipos import adicionar_extras
+            adicionar_extras(var.get("tipos_extras") or {})
+        except Exception:
+            pass
+
+        # Post de divulgação do canal (link/hashtag), publicado de tempos em tempos em vez de em todo post
+        div = y.get("divulgacao") or {}
+        self.divulgacao_ativa: bool = bool(div.get("ativa", True))
+        self.divulgacao_a_cada_horas: float = float(div.get("a_cada_horas", 24))
+        self.divulgacao_fixar: bool = bool(div.get("fixar", False))
+        self.divulgacao_texto: str = str(div.get("texto") or "").strip()
 
         fontes = y.get("fontes") or {}
         self.fonte_ml: dict = fontes.get("mercadolivre") or {"ativa": False}

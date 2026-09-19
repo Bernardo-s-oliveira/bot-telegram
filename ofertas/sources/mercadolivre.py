@@ -18,6 +18,7 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 from ..config import DATA_DIR, config
+from ..formatter import preco_br
 from ..models import Oferta
 from ..utils import USER_AGENT, parse_contagem, parse_nota, parse_preco_br, sessao
 
@@ -336,9 +337,68 @@ def parse_vendedor(html: str) -> dict:
     }
 
 
+# Cupons na página do produto (verificado em 2026-09-19). Não há código: o comprador ativa no modal
+# "Ver cupons disponíveis". O pill do card ("20% OFF com Cupom") não diz a condição; a página diz.
+# Formatos vistos (o campo amount_type nem sempre existe):
+#   {"label":"Compre R$ 79,99 e ganhe 20% OFF","status":"unredeemed","amount_type":"percentage",
+#    "amount":20,"campaign_id":"13566431","type":"COUPON_NOT_MIN_PURCHASE_AMOUNT"}     <- exige compra mínima
+#   {"label":"R$ 106,32 com Cupom","status":"unredeemed","amount":0,
+#    "campaign_id":"14167118","type":"INACTIVE_COUPON_NOT_APPLIED"}                    <- preço final exato
+# O `status` é da conta logada do bot ("redeemed" = ela já ativou), não da campanha: não é critério.
+_RE_CUPOM = re.compile(r'\{"label":"([^"]+)","status":"(\w+)"(?:,"amount_type":"\w+")?,"amount":[\d.]+,'
+                       r'"campaign_id":"(\d+)","type":"(\w+)"')
+# Só formatos sem condição extra. Outros (ex.: "... por seguir a loja") não são anunciados.
+_RE_CUPOM_REGRA = re.compile(r"^(?:Compre R\$ ([\d.,]+) e )?ganhe (?:(\d+)%|R\$ ([\d.,]+)) OFF$", re.I)
+_RE_CUPOM_PRECO = re.compile(r"^R\$ ([\d.,]+) com Cupom$", re.I)
+
+
+def parse_cupons(html: str) -> list[dict]:
+    """Cupons listados na página do produto (sem repetidos): label, status, tipo e campanha."""
+    vistos, cupons = set(), []
+    for label, status, campanha, tipo in _RE_CUPOM.findall(html):
+        if campanha not in vistos:
+            vistos.add(campanha)
+            cupons.append({"label": label, "status": status, "campanha": campanha, "tipo": tipo})
+    return cupons
+
+
+def texto_cupom(o: Oferta, cupons: list[dict]) -> str | None:
+    """Texto do cupom para o post, ou None. Só anuncia cupom que vale para 1 unidade deste produto:
+    formato sem condição extra, compra mínima (se houver) atingida pelo preço e tipo sem "mínimo não atingido"."""
+    if not o.preco:
+        return None
+    melhor: tuple[float, str] | None = None     # (economia estimada em R$, texto)
+    for c in cupons:
+        if "NOT_MIN" in c["tipo"] or c["status"] not in ("unredeemed", "redeemed"):
+            continue
+        if m := _RE_CUPOM_PRECO.match(c["label"]):          # o ML informa o preço final com o cupom
+            final = parse_preco_br(m.group(1)) or 0.0
+            if not 0 < final < o.preco:
+                continue
+            economia, texto = o.preco - final, f"🎟 {preco_br(final)} com cupom (ative na página do produto)"
+        elif m := _RE_CUPOM_REGRA.match(c["label"]):
+            minimo = parse_preco_br(m.group(1)) or 0.0
+            if o.preco < minimo:
+                continue
+            if m.group(3):      # valor fixo: o preço final é exato
+                economia = parse_preco_br(m.group(3)) or 0.0
+                texto = f"🎟 Cupom de {preco_br(economia)} OFF → {preco_br(max(o.preco - economia, 0))} (ative na página do produto)"
+            else:               # percentual: o cupom pode ter teto de desconto, então não calculo o preço final
+                economia = o.preco * int(m.group(2)) / 100
+                texto = f"🎟 Cupom de {m.group(2)}% OFF"
+                if minimo:
+                    texto += f" em compras a partir de {preco_br(minimo)}"
+                texto += " (ative na página do produto)"
+        else:
+            continue
+        if melhor is None or economia > melhor[0]:
+            melhor = (economia, texto)
+    return melhor[1] if melhor else None
+
+
 def verificar_vendedores(ofertas: list[Oferta]) -> None:
     """Abre a página de cada produto (mesmo navegador logado do Linkbuilder) e preenche os campos
-    de vendedor. Falha em uma página não interrompe as outras (ela só fica sem dados)."""
+    de vendedor e o cupom. Falha em uma página não interrompe as outras (ela só fica sem dados)."""
     from playwright.sync_api import sync_playwright
 
     if not tem_sessao():
@@ -352,13 +412,15 @@ def verificar_vendedores(ofertas: list[Oferta]) -> None:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         try:
             for o in pendentes:
-                dados = {}
+                dados, cupom = {}, None
                 try:
                     page.goto(o.url_produto, wait_until="domcontentloaded", timeout=45000)
                     page.wait_for_timeout(1500)
                     if "login" in page.url or "account-verification" in page.url:
                         raise RuntimeError("Sessão do ML expirou — rode de novo: uv run python -m ofertas ml-login")
-                    dados = parse_vendedor(page.content())
+                    html = page.content()
+                    dados = parse_vendedor(html)
+                    cupom = texto_cupom(o, parse_cupons(html)) if config.buscar_cupons else None
                 except RuntimeError:
                     raise
                 except Exception as e:
@@ -369,7 +431,9 @@ def verificar_vendedores(ofertas: list[Oferta]) -> None:
                 o.vendedor_status = dados.get("status")
                 o.loja_oficial = bool(dados.get("loja_oficial"))
                 o.vendas_vendedor = dados.get("vendas")
-            log.info("Mercado Livre: %d vendedor(es) conferido(s)", len(pendentes))
+                o.cupom = cupom
+            log.info("Mercado Livre: %d página(s) de produto conferida(s), %d com cupom válido",
+                     len(pendentes), sum(1 for o in pendentes if o.cupom))
         finally:
             ctx.close()
 
