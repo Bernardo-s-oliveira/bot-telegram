@@ -1,12 +1,13 @@
 """Seleção orientada ao comprador: só passa oferta que se sustenta nos dados.
 
-Duas faixas de oferta:
-- "campeao": muitas vendas + boa nota + preço em conta (mesmo com desconto modesto);
-- "desconto": desconto grande e *verificado* contra o histórico de preços que o bot
-  guarda, e com alguma prova social (vendas/avaliações).
+O desconto que a loja anuncia NÃO qualifica nem pontua uma oferta (na página de ofertas do ML a mediana
+anunciada é ~42%, com muito preço "De" inflado ou permanente). Só vale o que o histórico de preços do bot
+comprova. Duas faixas:
+- "campeao": muitas vendas + boa nota + preço em conta e não acima do normal. Não exige desconto;
+- "desconto": queda de preço COMPROVADA no histórico (>= filtros.desconto_minimo) + alguma prova social.
 
-Antes de pontuar, `avaliar` rejeita o que engana o comprador: sem avaliação, nota baixa,
-"desconto" inflado (preço "de" que o produto nunca teve) e preço acima do normal.
+Antes de pontuar, `avaliar` rejeita o que engana o comprador: sem avaliação, nota baixa, preço acima do
+normal do produto (ou de anúncios iguais) e preço fora da curva (erro de preço, golpe, vendedor duvidoso).
 """
 import math
 
@@ -23,7 +24,9 @@ PESOS = {
 _DESCONTO_TETO = 60          # acima disso o % deixa de somar (desconto absurdo é suspeito)
 _VENDAS_REF = 100_000        # vendas que já valem popularidade máxima
 _NOTA_PRIOR, _PESO_PRIOR = 4.2, 20   # encolhe a nota de quem tem poucas avaliações
-_QUEDA_MINIMA_SELO = 5       # abaixo disso não vale anunciar "abaixo do preço médio"
+_QUEDA_MINIMA_SELO = 10      # abaixo disso a queda não é anunciada no post
+_ACIMA_DO_NORMAL = 1.05      # preço > 5% acima do normal (mediana do histórico) não é boa hora de comprar
+_ACIMA_DE_IGUAIS = 1.10      # preço > 10% acima da mediana de anúncios iguais: o comprador acha mais barato
 
 
 def vendas_totais(o: Oferta) -> int | None:
@@ -80,45 +83,44 @@ def avaliar(o: Oferta, h: Historico | None) -> str | None:
     vendas = vendas_totais(o)
     prova = max(o.avaliacoes or 0, vendas or 0)
 
-    # Anúncio com preço bem abaixo de todos os iguais coletados: típico de erro de preço ou golpe.
-    if o.preco_mercado and o.preco < o.preco_mercado * config.preco_minimo_vs_mercado_pct / 100:
-        return (f"preço muito abaixo de anúncios iguais (R$ {o.preco:.2f} "
-                f"vs. R$ {o.preco_mercado:.2f})")
+    # Anúncios iguais coletados agora: fora da curva para baixo é erro de preço/golpe; para cima, o
+    # comprador acha o mesmo produto mais barato (o mais em conta entre os iguais é o que passa).
+    if o.preco_mercado:
+        if o.preco < o.preco_mercado * config.preco_minimo_vs_mercado_pct / 100:
+            return (f"preço muito abaixo de anúncios iguais (R$ {o.preco:.2f} "
+                    f"vs. R$ {o.preco_mercado:.2f})")
+        if o.preco > o.preco_mercado * _ACIMA_DE_IGUAIS:
+            return (f"mais caro que anúncios iguais (R$ {o.preco:.2f} "
+                    f"vs. R$ {o.preco_mercado:.2f})")
 
-    # Desconto real: o anunciado, limitado pelo que o preço de fato caiu. A referência é o
-    # histórico do bot; enquanto ele não existe, os anúncios iguais coletados no ciclo.
-    reclamado = o.desconto or 0
+    # Queda real: só o histórico do bot comprova. Sem histórico suficiente, não há queda conhecida.
     suficiente = bool(h and h.suficiente())
-    referencia = h.referencia if suficiente else o.preco_mercado
     queda = None
-    efetivo = reclamado
-    if referencia:
-        queda = max(0, round(100 * (1 - o.preco / referencia)))
-        efetivo = min(reclamado, queda) if reclamado else queda
-        if config.rejeitar_desconto_falso and reclamado >= 15 and efetivo < reclamado * 0.4:
-            fonte = "histórico" if suficiente else "anúncios iguais"
-            return f"desconto inflado (anuncia -{reclamado}%, real -{queda}% pelo {fonte})"
-    if not suficiente and reclamado > config.desconto_max_sem_historico:
-        return f"desconto alto sem histórico (anuncia -{reclamado}%)"  # reavaliado quando o histórico existir
+    if suficiente:
+        if o.preco > h.referencia * _ACIMA_DO_NORMAL:
+            return f"preço acima do normal (R$ {o.preco:.2f} vs. média R$ {h.referencia:.2f})"
+        queda = max(0, round(100 * (1 - o.preco / h.referencia)))
 
-    # Desconto muito alto, mesmo comprovado: ou é liquidação de verdade, ou preço errado/vendedor duvidoso.
-    suspeita = efetivo >= config.desconto_suspeito
+    # Preço muito abaixo do normal: liquidação de verdade, erro de preço ou vendedor duvidoso. Sem histórico,
+    # o desconto anunciado serve só de ALERTA (não é exibido nem pontua): descontos enormes exigem vendedor
+    # confiável (ML: conferido na página do produto) ou prova forte de vendas.
+    sinal = queda if suficiente else (o.desconto or 0)
+    suspeita = sinal >= config.desconto_suspeito
     if suspeita:
         prova_forte = (vendas or 0) >= config.suspeita_vendas_minimas and (o.nota or 0) >= 4.6
         vendedor_sera_checado = config.verificar_vendedor and o.plataforma == "mercadolivre"
-        if not (suficiente and (vendedor_sera_checado or prova_forte)):
-            return f"desconto suspeito (-{efetivo}%, sem como comprovar vendedor)"
+        if not (vendedor_sera_checado or prova_forte):
+            return f"desconto suspeito (-{sinal}%, sem como comprovar vendedor)"
     o.suspeita = suspeita
 
     campeao = (vendas is not None and vendas >= config.campeoes_vendas_minimas
-               and o.nota is not None and o.nota >= config.campeoes_nota_minima
-               and efetivo >= config.campeoes_desconto_minimo)
-    desconto = efetivo >= config.desconto_minimo and prova >= config.prova_social_minima
+               and o.nota is not None and o.nota >= config.campeoes_nota_minima)
+    desconto = (queda or 0) >= config.desconto_minimo and prova >= config.prova_social_minima
     if not (campeao or desconto):
         return "critérios não atingidos"
 
     componentes = {
-        "pop": _pop(vendas), "qual": _qual(o, vendas), "desc": _clamp(efetivo / _DESCONTO_TETO),
+        "pop": _pop(vendas), "qual": _qual(o, vendas), "desc": _clamp((queda or 0) / _DESCONTO_TETO),
         "hist": _hist(o, h, suficiente), "conta": _conta(o.preco),
     }
     scores = {f: sum(PESOS[f][k] * v for k, v in componentes.items())
@@ -126,15 +128,15 @@ def avaliar(o: Oferta, h: Historico | None) -> str | None:
     o.faixa = max(scores, key=scores.get)
     o.score = round(scores[o.faixa], 4)
 
-    # Só mostra "De" como fato quando o histórico o comprova; do contrário o post diz que é a loja que anuncia.
+    # O post nunca mostra o "De"/percentual da loja: só uma queda comprovada, contra o preço médio do histórico.
     o.selos = []
     o.desconto_verificado = False
-    if suficiente and queda is not None and queda >= _QUEDA_MINIMA_SELO and o.preco < h.referencia:
-        if reclamado == 0 or reclamado > queda + 5:
-            o.preco_original, o.desconto_pct = round(h.referencia, 2), queda
+    if suficiente and queda >= _QUEDA_MINIMA_SELO:
+        o.preco_original, o.desconto_pct = round(h.referencia, 2), queda
         o.desconto_verificado = True
-        o.selos.append(f"✅ {queda}% abaixo do preço médio dos últimos {_dias_txt(h)} dias")
-    if suficiente and h.dias >= 7 and o.preco <= h.minimo * 1.01:
+        o.selos.append(f"🔻 Caiu {queda}% em relação ao preço médio dos últimos {_dias_txt(h)} dias")
+    # "menor preço" só faz sentido se o preço já esteve mais alto (produto de preço fixo estaria sempre no mínimo)
+    if suficiente and h.dias >= 7 and o.preco <= h.minimo * 1.01 and h.referencia > h.minimo * 1.02:
         o.selos.append(f"📉 Menor preço dos últimos {_dias_txt(h)} dias")
     return None
 

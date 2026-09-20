@@ -144,7 +144,8 @@ def cmd_simular(_):
         print("Rejeitadas: " + ", ".join(f"{m}: {q}" for m, q in sorted(rejeicoes.items(), key=lambda x: -x[1])))
     for o in escolhidas:
         print(f"\n[{o.faixa} · score {o.score:.2f}] {o.plataforma} — {o.titulo[:70]}")
-        print(f"   R$ {o.preco} (de {o.preco_original}) -{o.desconto or 0}%"
+        queda = f"queda comprovada -{o.desconto}%" if o.desconto_verificado else "sem queda comprovada"
+        print(f"   R$ {o.preco} ({queda})"
               f" · nota {o.nota} · vendas {o.vendas}{'/mês' if o.vendas_mensal else ''}")
         for s in o.selos:
             print(f"   {s}")

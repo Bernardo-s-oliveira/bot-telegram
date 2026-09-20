@@ -51,7 +51,7 @@ async def _cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         f"🔎 Fontes automáticas: {', '.join(fontes) or 'nenhuma'}\n"
         f"⏱ Ciclo a cada {config.intervalo_minutos} min, "
         f"máx. {config.max_posts_por_ciclo} posts por ciclo\n"
-        f"🎯 Desconto mínimo: {config.desconto_minimo}%"
+        f"🎯 Queda mínima comprovada (faixa de queda de preço): {config.desconto_minimo}%"
     )
 
 

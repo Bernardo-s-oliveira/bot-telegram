@@ -31,7 +31,7 @@ def test_preco_usa_o_emoji_de_dinheiro_nas_tres_variantes():
 def test_post_nao_tem_rodape_de_divulgacao():
     texto = montar_caption(Oferta("shopee", "1", "Item", "x", preco=10.0))
     assert "t.me" not in texto and "#" not in texto and "Compartilhe" not in texto
-    assert texto.endswith("🧡 Shopee")
+    assert texto.endswith("🛒 Loja: Shopee")
 
 
 # ── título curto ─────────────────────────────────────────────────────
@@ -125,3 +125,37 @@ def test_pior_caso_cabe_na_legenda_de_foto_de_1024_caracteres():
 ])
 def test_tipo_do_produto(titulo, tipo):
     assert tipo_do_produto(titulo) == tipo
+
+
+
+# ── layout do post ───────────────────────────────────────────────────
+
+def test_layout_do_post_preco_nota_vendas_e_loja_em_linhas_separadas():
+    o = Oferta("mercadolivre", "1", "Tênis Masculino Kappa Park 2.0 Original", "x", preco=58.55, nota=4.9, vendas=50_000)
+    assert montar_caption(o) == (
+        "🔥 <b>Tênis Masculino Kappa Park 2.0 Original</b>\n"
+        "\n"
+        "💰 <b>R$ 58,55</b>\n"
+        "⭐ 4,9\n"
+        "🏆 +50 mil vendidos\n"
+        "🛒 Loja: Mercado Livre"
+    )
+
+
+def test_loja_de_cada_plataforma():
+    for plataforma, nome in (("mercadolivre", "Mercado Livre"), ("shopee", "Shopee"), ("amazon", "Amazon")):
+        assert montar_caption(Oferta(plataforma, "1", "Item", "x", preco=10.0)).endswith(f"🛒 Loja: {nome}")
+
+
+def test_sem_nota_nem_vendas_o_post_nao_tem_linhas_vazias_de_prova_social():
+    texto = montar_caption(Oferta("amazon", "1", "Item", "x", preco=10.0))
+    assert "⭐" not in texto and "🏆" not in texto and "\n\n\n" not in texto
+
+
+def test_selos_cupom_e_extras_ficam_entre_as_vendas_e_a_loja():
+    o = Oferta("mercadolivre", "1", "Item", "x", preco=58.55, nota=4.9, vendas=50_000,
+               selos=["📉 Menor preço dos últimos 30 dias"], cupom="🎟 USAR CUPOM: ativar na página → R$ 50,00",
+               extra="🚚 Frete grátis")
+    linhas = montar_caption(o).split("\n")
+    assert linhas[2:] == ["💰 <b>R$ 58,55</b>", "⭐ 4,9", "🏆 +50 mil vendidos", "📉 Menor preço dos últimos 30 dias",
+                          "🎟 USAR CUPOM: ativar na página → R$ 50,00", "🚚 Frete grátis", "🛒 Loja: Mercado Livre"]

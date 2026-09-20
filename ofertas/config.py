@@ -62,12 +62,10 @@ class Config:
         self.exigir_avaliacao: bool = bool(sel.get("exigir_avaliacao", True))
         self.nota_minima: float = float(sel.get("nota_minima", 4.3))
         self.prova_social_minima: int = int(sel.get("prova_social_minima", 20))
-        self.rejeitar_desconto_falso: bool = bool(sel.get("rejeitar_desconto_falso", True))
         self.historico_dias: int = int(sel.get("historico_dias", 30))
         self.repostar_queda_pct: int = int(sel.get("repostar_se_queda_pct", 10))
         self.vendas_mensal_para_total: float = float(sel.get("vendas_mensal_para_total", 6))
         self.desconto_suspeito: int = int(sel.get("desconto_suspeito", 60))
-        self.desconto_max_sem_historico: int = int(sel.get("desconto_max_sem_historico", 50))
         self.suspeita_vendas_minimas: int = int(sel.get("suspeita_vendas_minimas", 5000))
         self.preco_minimo_vs_mercado_pct: int = int(sel.get("preco_minimo_vs_mercado_pct", 50))
         self.verificar_vendedor: bool = bool(sel.get("verificar_vendedor", True))
@@ -75,7 +73,6 @@ class Config:
         self.vendedor_nivel_minimo: int = int(sel.get("vendedor_nivel_minimo", 4))
         self.campeoes_vendas_minimas: int = int(camp.get("vendas_minimas", 1000))
         self.campeoes_nota_minima: float = float(camp.get("nota_minima", 4.5))
-        self.campeoes_desconto_minimo: int = int(camp.get("desconto_minimo", 10))
         self.campeoes_pct_posts: int = max(0, min(100, int(camp.get("pct_dos_posts", 50))))
 
         # Variedade: não repete o mesmo TIPO de produto (ofertas/tipos.py) numa janela de horas

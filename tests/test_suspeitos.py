@@ -16,20 +16,29 @@ def chuveiro(**kw):
     return oferta(**{**base, **kw})
 
 
-def test_desconto_74_sem_historico_espera_o_historico():
-    assert selecao.avaliar(chuveiro(), None).startswith("desconto alto sem histórico")
-
-
-def test_desconto_74_com_historico_de_preco_estavel_e_inflado():
-    motivo = selecao.avaliar(chuveiro(), historico(referencia=130.0, minimo=125.0))
-    assert motivo.startswith("desconto inflado") and "real -21%" in motivo
-
-
-def test_desconto_74_sem_historico_mas_com_anuncios_iguais_e_inflado():
+def test_chuveiro_sem_historico_nao_mostra_o_de_nem_o_percentual_da_loja():
     o = chuveiro()
-    o.preco_mercado = 130.0    # outros anúncios do mesmo chuveiro custam ~R$ 130
-    motivo = selecao.avaliar(o, None)
-    assert motivo.startswith("desconto inflado") and "anúncios iguais" in motivo
+    assert selecao.avaliar(o, None) is None            # passa (muito vendido, bem avaliado, vendedor será checado)...
+    assert o.suspeita is True                          # ...mas o desconto anunciado enorme vira alerta
+    texto = montar_caption(o)
+    assert "💰 <b>R$ 102,66</b>" in texto
+    for proibido in ("399", "74", "Loja anuncia", "De:"):
+        assert proibido not in texto
+
+
+def test_chuveiro_com_historico_mostra_so_a_queda_real():
+    """O produto sempre custou ~R$ 130: o post fala em -21% contra o preço médio, e nunca no "De" de R$ 399,70."""
+    o = chuveiro()
+    assert selecao.avaliar(o, historico(referencia=130.0, minimo=125.0)) is None
+    assert o.suspeita is False                         # queda real de 21% não é suspeita
+    assert (o.preco_original, o.desconto) == (130.0, 21)
+    texto = montar_caption(o)
+    assert "❌ De: <s>R$ 130,00</s>" in texto and "Caiu 21%" in texto
+    assert "399" not in texto and "74" not in texto
+
+
+def test_chuveiro_acima_do_normal_com_historico_e_rejeitado():
+    assert selecao.avaliar(chuveiro(preco=150.0), historico(referencia=130.0)).startswith("preço acima do normal")
 
 
 def test_preco_muito_abaixo_dos_anuncios_iguais_e_rejeitado():
@@ -38,9 +47,14 @@ def test_preco_muito_abaixo_dos_anuncios_iguais_e_rejeitado():
     assert selecao.avaliar(o, None).startswith("preço muito abaixo de anúncios iguais")
 
 
-def test_sem_historico_nao_posta_desconto_acima_do_limite_mas_posta_no_limite():
-    assert selecao.avaliar(oferta(preco=50.0, original=100.0), None) is None                        # -50%
-    assert selecao.avaliar(oferta(preco=45.0, original=100.0), None).startswith("desconto alto")    # -55%
+def test_sem_historico_desconto_anunciado_alto_fora_do_ml_exige_prova_forte():
+    # o "-65%" não é exibido nem pontua, mas sem como checar o vendedor é alerta de preço errado/golpe
+    fraco = oferta(preco=35.0, original=100.0, plataforma="amazon", vendas=200, mensal=True, nota=4.7)
+    assert selecao.avaliar(fraco, None).startswith("desconto suspeito")
+    forte = oferta(preco=35.0, original=100.0, plataforma="amazon", vendas=1500, mensal=True, nota=4.7)
+    assert selecao.avaliar(forte, None) is None
+    moderado = oferta(preco=55.0, original=100.0, plataforma="amazon", vendas=200, mensal=True, nota=4.7)
+    assert selecao.avaliar(moderado, None) is None      # -45%: abaixo do limite de suspeita
 
 
 # ── desconto real e muito alto: exige vendedor confiável ou prova forte ──
@@ -111,19 +125,22 @@ def test_vendedor_confiavel_ganha_selo():
     assert any("Loja oficial" in s for s in o.selos)
 
 
-# ── post: "De" só quando é real ──────────────────────────────────────
+# ── post: percentual só quando o histórico comprova ──────────────────
 
-def test_post_nao_apresenta_de_como_fato_sem_historico():
+def test_post_sem_historico_nao_tem_de_nem_percentual():
     o = Oferta("mercadolivre", "1", "Chuveiro", "x", preco=102.66, preco_original=399.70, desconto_pct=74)
     texto = montar_caption(o)
-    assert "🏷 Loja anuncia -74% (de R$ 399,70)" in texto
-    assert "De:" not in texto and "<s>" not in texto
+    assert "💰 <b>R$ 102,66</b>" in texto
+    for proibido in ("399", "74", "%", "Loja anuncia", "De:", "<s>"):
+        assert proibido not in texto
 
 
-def test_post_mostra_de_e_por_quando_o_historico_comprova():
-    o = Oferta("mercadolivre", "1", "Chuveiro", "x", preco=102.66, preco_original=130.0, desconto_verificado=True)
+def test_post_com_historico_mostra_de_e_por_e_o_percentual_uma_vez_so():
+    o = Oferta("mercadolivre", "1", "Chuveiro", "x", preco=102.66, preco_original=130.0, desconto_pct=21,
+               desconto_verificado=True, selos=["🔻 Caiu 21% em relação ao preço médio dos últimos 14 dias"])
     texto = montar_caption(o)
-    assert "❌ De: <s>R$ 130,00</s>" in texto and "💰 Por: <b>R$ 102,66</b>" in texto and "-21%" in texto
+    assert "❌ De: <s>R$ 130,00</s>" in texto and "💰 Por: <b>R$ 102,66</b>" in texto
+    assert texto.count("21%") == 1 and "🔻 <b>-" not in texto
 
 
 # ── leitura do vendedor na página do produto (trechos do bloco de tracking, 2026-09-19) ──

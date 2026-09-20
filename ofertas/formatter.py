@@ -5,10 +5,10 @@ from html import escape
 from .models import Oferta
 from .tipos import tipo_do_produto
 
-_PLATAFORMA = {
-    "mercadolivre": "💛 Mercado Livre",
-    "shopee": "🧡 Shopee",
-    "amazon": "📦 Amazon",
+_LOJA = {
+    "mercadolivre": "Mercado Livre",
+    "shopee": "Shopee",
+    "amazon": "Amazon",
 }
 
 
@@ -72,40 +72,34 @@ def contagem_br(n: int) -> str:
     return str(n)
 
 
-def _linha_prova_social(o: Oferta) -> str:
-    partes = []
+def _linhas_prova_social(o: Oferta) -> list[str]:
+    """Nota e vendas, cada uma na sua linha."""
+    linhas = []
     if o.nota:
-        partes.append(f"⭐ {o.nota:.1f}".replace(".", ","))
+        linhas.append(f"⭐ {o.nota:.1f}".replace(".", ","))
     if o.vendas:
         rotulo = "compras no último mês" if o.vendas_mensal else "vendidos"
-        partes.append(f"🏆 +{contagem_br(o.vendas)} {rotulo}")
-    return " · ".join(partes)
+        linhas.append(f"🏆 +{contagem_br(o.vendas)} {rotulo}")
+    return linhas
 
 
 def montar_caption(o: Oferta) -> str:
     linhas = [f"🔥 <b>{escape(titulo_curto(o.titulo))}</b>", ""]
 
-    if o.preco and o.preco_original and o.preco_original > o.preco:
-        if o.desconto_verificado:
-            linhas.append(f"❌ De: <s>{preco_br(o.preco_original)}</s>")
-            selo = f"  🔻 <b>-{o.desconto}%</b>" if o.desconto else ""
-            linhas.append(f"💰 Por: <b>{preco_br(o.preco)}</b>{selo}")
-        else:
-            # sem histórico que comprove, o "De" é só a palavra da loja: não é apresentado como fato
-            linhas.append(f"💰 <b>{preco_br(o.preco)}</b>")
-            linhas.append(f"🏷 Loja anuncia -{o.desconto}% (de {preco_br(o.preco_original)})")
+    # O "De" e o percentual da loja nunca aparecem. Só uma queda comprovada pelo histórico de preços do bot
+    # (`desconto_verificado`): "De" é o preço médio recente, e o percentual vai no selo, uma vez só.
+    if o.preco and o.desconto_verificado and o.preco_original and o.preco_original > o.preco:
+        linhas.append(f"❌ De: <s>{preco_br(o.preco_original)}</s>")
+        linhas.append(f"💰 Por: <b>{preco_br(o.preco)}</b>")
     elif o.preco:
-        selo = f"  🔻 <b>-{o.desconto}%</b>" if o.desconto else ""
-        linhas.append(f"💰 <b>{preco_br(o.preco)}</b>{selo}")
+        linhas.append(f"💰 <b>{preco_br(o.preco)}</b>")
 
-    social = _linha_prova_social(o)
-    if social:
-        linhas.append(social)
+    linhas += _linhas_prova_social(o)
     linhas += [escape(s) for s in o.selos]
     if o.cupom:
         linhas.append(escape(o.cupom))
     if o.extra:
         linhas.append(escape(o.extra))
 
-    linhas += ["", _PLATAFORMA.get(o.plataforma, o.plataforma)]
+    linhas.append(f"🛒 Loja: {_LOJA.get(o.plataforma, o.plataforma)}")
     return "\n".join(linhas)
