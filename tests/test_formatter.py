@@ -263,3 +263,25 @@ def test_linha_social_na_amazon_diz_compras_no_ultimo_mes():
 def test_loja_oficial_nao_aparece_duas_vezes():
     o = Oferta("mercadolivre", "1", "Item", "x", preco=10.0, nota=4.9, vendas=1_000, loja_oficial=True)
     assert montar_caption(o).count("Loja oficial") == 1
+
+
+# ── títulos reais da Amazon que enganavam o dicionário de tipos ──────
+
+@pytest.mark.parametrize("titulo, tipo", [
+    ("KitKat Creme Crocante de Chocolate – Pasta para Passar, 330 g", "cafe"),          # não é hidratante
+    ("Capa de Chuva Reutilizável Impermeável para Verão e Carnaval", "agasalho"),       # não é capinha de celular
+    ("Cadeira Para Auto 0-36 Kg Mass Preta Litet", "fralda"),                            # cadeirinha de bebê, não móvel
+    ("Garrafa De Tinta Original Epson Ecotank T544 Preto", "impressora"),               # não é garrafa térmica
+    ("Kit 2 Saco para Lavar Tênis para Calçados (Cinza)", "limpeza"),                    # o saco vem antes do tênis
+    ("BONI NATURAL - Creme Dental com óleos naturais de Menta", "higiene"),              # "creme dental" continua valendo
+])
+def test_tipos_de_titulos_reais_da_amazon(titulo, tipo):
+    assert tipo_do_produto(titulo) == tipo
+
+
+def test_o_tipo_vem_do_comeco_do_titulo_nao_de_uma_lista_de_usos_no_final():
+    curto = "Duracell Pilhas Moeda CR2032 Pack 2 Unidades"
+    longo = curto + ", bateria de lítio 3V para chaves, calculadoras, relógios, controles e placa mãe de computadores"
+    assert tipo_do_produto(curto) is None
+    assert tipo_do_produto(longo) is None            # "placa mãe" no final não faz da pilha um SSD
+    assert tipo_do_produto("Anker Soundcore P20i Fone de Ouvido Bluetooth " + "x" * 90) == "fone"

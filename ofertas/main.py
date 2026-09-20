@@ -18,6 +18,8 @@ def cmd_check(_):
         print("✅ Token do bot")
     if config.chat_id:
         print(f"✅ Canal/grupo: {config.chat_id}")
+    if config.chat_id_apple:
+        print(f"✅ Grupo Apple: {config.chat_id_apple}" + ("" if config.apple_ativo else " (desligado em apple.ativo)"))
     if config.owner_id:
         print(f"✅ Owner id: {config.owner_id}")
     if config.amazon_tag:
@@ -72,19 +74,20 @@ def cmd_converter(args):
 
 def cmd_postar(args):
     from telegram import Bot
-    from . import db
+    from . import db, destinos
     from .config import config
     from .telegram_poster import postar_oferta
     if not (config.bot_token and config.chat_id):
         raise SystemExit("Configure TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID antes.")
     o = _converter(args.url)
+    destino, chat = destinos.chat_para(o)
 
     async def go():
         bot = Bot(config.bot_token)
         async with bot:
-            await postar_oferta(bot, o, config.chat_id)
-        db.registrar(o)
-        print(f"✅ Postada: {o.titulo[:60]}")
+            await postar_oferta(bot, o, chat)
+        db.registrar(o, destino)
+        print(f"✅ Postada no {'grupo Apple' if destino == 'apple' else 'canal'}: {o.titulo[:60]}")
 
     asyncio.run(go())
 
@@ -134,21 +137,24 @@ def cmd_testar(args):
 
 def cmd_simular(_):
     """Roda coleta + seleção como um ciclo real, mas só mostra o resultado (não posta nada)."""
-    from . import db, mix, pipeline
-    from .config import config
+    from . import db, destinos, mix, pipeline
     ofertas = pipeline.coletar()
     db.registrar_precos(ofertas)  # alimenta o histórico de preços (não posta nem marca como postada)
-    escolhidas, rejeicoes = pipeline.selecionar(ofertas, config.max_posts_por_ciclo)
-    print(f"\nColetadas: {len(ofertas)} · escolhidas: {len(escolhidas)}")
-    if rejeicoes:
-        print("Rejeitadas: " + ", ".join(f"{m}: {q}" for m, q in sorted(rejeicoes.items(), key=lambda x: -x[1])))
-    for o in escolhidas:
-        print(f"\n[{o.faixa} · score {o.score:.2f} · {mix.categoria(o)}] {o.plataforma} — {o.titulo[:70]}")
-        queda = f"queda comprovada -{o.desconto}%" if o.desconto_verificado else "sem queda comprovada"
-        print(f"   R$ {o.preco} ({queda})"
-              f" · nota {o.nota} · vendas {o.vendas}{'/mês' if o.vendas_mensal else ''}")
-        for s in o.selos:
-            print(f"   {s}")
+    grupos = destinos.dividir(ofertas)
+    print(f"\nColetadas: {len(ofertas)}")
+    for d in destinos.ativos():
+        escolhidas, rejeicoes = pipeline.selecionar(grupos[d.nome], d.max_posts, True, d)
+        titulo = "GRUPO APPLE" if d.nome == "apple" else "CANAL GERAL"
+        print(f"\n══ {titulo}: {len(grupos[d.nome])} candidatas · escolhidas: {len(escolhidas)}")
+        if rejeicoes:
+            print("Rejeitadas: " + ", ".join(f"{m}: {q}" for m, q in sorted(rejeicoes.items(), key=lambda x: -x[1])))
+        for o in escolhidas:
+            print(f"\n[{o.faixa} · score {o.score:.2f} · {mix.categoria(o)}] {o.plataforma} — {o.titulo[:70]}")
+            queda = f"queda comprovada -{o.desconto}%" if o.desconto_verificado else "sem queda comprovada"
+            print(f"   R$ {o.preco} ({queda})"
+                  f" · nota {o.nota} · vendas {o.vendas}{'/mês' if o.vendas_mensal else ''}")
+            for s in o.selos:
+                print(f"   {s}")
 
 
 def main():

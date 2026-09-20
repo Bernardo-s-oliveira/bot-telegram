@@ -158,21 +158,80 @@ _sessao_amz: requests.Session | None = None
 _rodizio = 0
 
 
+# A Amazon recusa (HTTP 503) o "Accept: */*" padrão do requests. Verificado em 2026-09-20, mesmo IP e mesma hora:
+# só UA + idioma = 503; com Accept de navegador = 200; com Accept + Sec-Fetch-* = 200 em 4 de 4 páginas.
+# NÃO acrescente "sec-ch-ua": com ele a Amazon voltou a responder 503.
+_CABECALHOS_NAVEGADOR = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+}
+
+
 def _sessao() -> requests.Session:
     global _sessao_amz
     if _sessao_amz is None:
         _sessao_amz = sessao()  # cookies persistem entre ciclos: menos cara de robô
+        _sessao_amz.headers.update(_CABECALHOS_NAVEGADOR)
     return _sessao_amz
 
 
-def _bloqueado(html: str) -> bool:
+def _pegar(s: requests.Session, params: dict) -> requests.Response:
+    """GET da busca. A Amazon às vezes recusa (503) o primeiro pedido de uma sessão sem cookies e aceita o
+    seguinte: uma segunda tentativa, depois de uma pausa. Captcha (200 com aviso) NÃO é repetido."""
+    r = s.get(URL_BUSCA, params=params, timeout=30)
+    if r.status_code == 503:
+        time.sleep(6)
+        r = s.get(URL_BUSCA, params=params, timeout=30)
+    return r
+
+
+def _motivo_bloqueio(html: str) -> str | None:
+    """Por que esta página é um bloqueio da Amazon, ou None se não é. Página COM resultados de busca nunca é
+    bloqueio: a palavra "captcha" pode aparecer no <head> de páginas normais (falso positivo)."""
+    if "s-search-result" in html:
+        return None
+    if "bm-verify" in html:
+        # Desafio anti-robô da Amazon (verificado em 2026-09-20): página de ~2 KB, status 200, título em branco, com
+        # um meta refresh para "?bm-verify=..." e um script que faz POST em /_sec/verify. Navegador resolve; cliente
+        # HTTP simples não, e o bot NÃO tenta resolver: recua (pausa) e tenta de novo mais tarde.
+        return "desafio de verificação anti-robô da Amazon (bm-verify)"
     inicio = html[:5000].lower()
-    if any(s in inicio for s in ("captcha", "robot check", "api-services-support@amazon.com")):
-        return True
+    for sinal in ("captcha", "robot check", "api-services-support@amazon.com"):
+        if sinal in inicio:
+            return f"verificação de robô/captcha ('{sinal}')"
     # página-interstício de bloqueio leve: título vazio (&nbsp;) e sem resultados
     m = re.search(r"<title>(.*?)</title>", html[:3000], re.S)
     titulo = re.sub(r"&nbsp;|\s", "", m.group(1)) if m else "x"
-    return not titulo and 's-search-result' not in html[:60000]
+    return "página em branco, sem resultados (interstício)" if not titulo else None
+
+
+def _bloqueado(html: str) -> bool:
+    return _motivo_bloqueio(html) is not None
+
+
+_pausa_ate = 0.0   # depois de um bloqueio, a Amazon fica em pausa até este instante (time.time())
+
+
+def _registrar_bloqueio(rotulo: str, motivo: str, resposta) -> None:
+    """Loga o MOTIVO, guarda a página recebida (data/debug_amazon_bloqueio.html) para investigação e coloca a
+    Amazon em pausa (fontes.amazon.pausa_apos_bloqueio_minutos, padrão 60; 0 = sem pausa). Insistir logo depois
+    de um bloqueio só o prolonga."""
+    global _pausa_ate
+    minutos = int(config.fonte_amazon.get("pausa_apos_bloqueio_minutos", 60))
+    _pausa_ate = time.time() + minutos * 60 if minutos > 0 else 0.0
+    m = re.search(r"<title>(.*?)</title>", resposta.text[:5000], re.S)
+    try:
+        (DATA_DIR / "debug_amazon_bloqueio.html").write_text(resposta.text, encoding="utf-8")
+    except OSError:
+        pass
+    log.warning("Amazon bloqueou '%s': %s (HTTP %s, título: %s) — página em data/debug_amazon_bloqueio.html; "
+                "%s", rotulo, motivo, resposta.status_code, (m.group(1).strip()[:60] if m else "?"),
+                f"pausando a Amazon por {minutos} min" if minutos > 0 else "sem pausa configurada")
 
 
 def _imagem_grande(src: str | None) -> str | None:
@@ -291,6 +350,10 @@ def _tarefas_do_ciclo() -> list[dict]:
 
 
 def _buscar_por_scraping(tarefas: list[dict]) -> list[Oferta]:
+    espera = _pausa_ate - time.time()
+    if espera > 0:
+        log.info("Amazon em pausa por bloqueio recente — volto a tentar em ~%d min", -(-int(espera) // 60))
+        return []
     paginas = int(config.fonte_amazon.get("paginas", 1))
     s = _sessao()
     ofertas: dict[str, Oferta] = {}
@@ -302,12 +365,13 @@ def _buscar_por_scraping(tarefas: list[dict]) -> list[Oferta]:
             achadas: list[Oferta] = []
             for tentativa in (1, 2):
                 try:
-                    r = s.get(URL_BUSCA, params=params, timeout=30)
+                    r = _pegar(s, params)
                 except Exception as e:
                     log.error("Amazon %s: %s", tarefa["rotulo"], e)
                     return list(ofertas.values())
-                if r.status_code != 200 or _bloqueado(r.text):
-                    log.warning("Amazon bloqueou a busca (HTTP %s) — parando este ciclo", r.status_code)
+                motivo = f"resposta HTTP {r.status_code}" if r.status_code != 200 else _motivo_bloqueio(r.text)
+                if motivo:
+                    _registrar_bloqueio(tarefa["rotulo"], motivo, r)
                     return list(ofertas.values())
                 achadas = _parse_busca(r.text, tarefa["rotulo"])
                 if achadas or tentativa == 2:
@@ -318,6 +382,24 @@ def _buscar_por_scraping(tarefas: list[dict]) -> list[Oferta]:
             log.info("Amazon %s: %d itens", tarefa["rotulo"], len(achadas))
             time.sleep(3)  # educação com o servidor
     return list(ofertas.values())
+
+
+_rodizio_termos = 0
+
+
+def buscar_termos(termos: list[str], por_ciclo: int = 2) -> list[Oferta]:
+    """Ofertas das buscas do Amazon.com.br por termo (ex.: "apple iphone"), usadas pelo grupo Apple.
+    Em rodízio, como as demais páginas: só `por_ciclo` termos por ciclo (0 = todos), para não martelar a Amazon."""
+    global _rodizio_termos
+    if not termos:
+        return []
+    n = len(termos) if por_ciclo <= 0 else min(por_ciclo, len(termos))
+    inicio = _rodizio_termos % len(termos)
+    _rodizio_termos += n
+    escolhidos = (termos + termos)[inicio:inicio + n]
+    ofertas = _buscar_por_scraping([{"rotulo": f"busca '{t}'", "params": {"k": str(t)}} for t in escolhidos])
+    log.info("Amazon (busca de termos): %d ofertas em %s", len(ofertas), ", ".join(escolhidos))
+    return ofertas
 
 
 _api_bloqueada_ate = 0.0

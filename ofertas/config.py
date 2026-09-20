@@ -34,6 +34,7 @@ class Config:
         # .env (segredos)
         self.bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         self.chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        self.chat_id_apple: str = os.getenv("TELEGRAM_CHAT_ID_APPLE", "").strip()   # grupo só de produtos Apple
         self.owner_id: int = int(os.getenv("TELEGRAM_OWNER_ID", "0").strip() or 0)
         self.amazon_tag: str = os.getenv("AMAZON_TAG", "").strip()
         self.amazon_credential_id: str = os.getenv("AMAZON_CREDENTIAL_ID", "").strip()
@@ -83,6 +84,20 @@ class Config:
             adicionar_extras(var.get("tipos_extras") or {})
         except Exception:
             pass
+
+        # Grupo Apple (ofertas/destinos.py): produtos Apple vão para o grupo próprio, o resto para o canal geral.
+        # Só liga com TELEGRAM_CHAT_ID_APPLE no .env; sem ele, tudo continua indo para o canal geral.
+        apple = y.get("apple") or {}
+        self.apple_ativo: bool = bool(apple.get("ativo", True))
+        self.apple_max_posts: int = int(apple.get("max_posts_por_ciclo", 3))
+        self.apple_queda_minima: int = int(apple.get("queda_minima", 5))
+        self.apple_so_queda: bool = bool(apple.get("so_queda_de_preco", True))
+        self.apple_buscas: list[str] = [str(t) for t in (apple.get("buscas") if apple.get("buscas") is not None else [
+            "apple iphone", "apple ipad", "apple macbook", "airpods apple", "apple watch"])]
+        self.apple_amazon_termos_por_ciclo: int = int(apple.get("amazon_termos_por_ciclo", 2))
+        bloqueadas = apple.get("palavras_bloqueadas")
+        self.apple_palavras_bloqueadas: list[str] = [str(p).lower() for p in (
+            ["recondicionado", "seminovo", "usado", "vitrine", "open box", "swap"] if bloqueadas is None else bloqueadas)]
 
         # Mix de categorias (ofertas/mix.py): fatia-alvo dos posts por categoria
         mix = y.get("mix") or {}
@@ -156,6 +171,9 @@ def verificar() -> list[str]:
         pendencias.append("TELEGRAM_CHAT_ID (canal/grupo onde o bot vai postar)")
     if not config.owner_id:
         pendencias.append("TELEGRAM_OWNER_ID (seu user id — mande /id para o bot)")
+    if config.chat_id_apple and config.chat_id_apple == config.chat_id:
+        pendencias.append("TELEGRAM_CHAT_ID_APPLE é IGUAL a TELEGRAM_CHAT_ID: o grupo Apple e o canal geral "
+                          "precisam de IDs diferentes (use 'Detectar IDs' no painel e escolha o destino de cada chat)")
     if not config.amazon_tag:
         pendencias.append("AMAZON_TAG (tag/Store ID do Amazon Associates)")
     if config.fonte_amazon.get("ativa") and not (config.amazon_credential_id and config.amazon_credential_secret):

@@ -30,7 +30,7 @@ TIPOS: dict[str, list[str]] = {
     "capinha": ["capinha", "capa", "case", "pelicula"],
     "suporte": ["suporte"],
     "roteador": ["roteador", "repetidor"],
-    "impressora": ["impressora"],
+    "impressora": ["impressora", "garrafa de tinta", "tinta para impressora", "cartucho", "toner"],
     "controle": ["controle", "joystick", "gamepad"],
     "console": ["playstation", "ps5", "ps4", "xbox", "nintendo"],
     "smartwatch": ["smartwatch", "smartband", "smart band", "relogio inteligente", "watch", "galaxy watch"],
@@ -67,13 +67,14 @@ TIPOS: dict[str, list[str]] = {
                 "cotonete", "desodorante"],
     "utensilios": ["varal", "escada", "cabide", "vassoura", "rodo", "balde", "tabua de corte", "jarra", "prato",
                    "talher", "faqueiro", "assadeira"],
-    "limpeza": ["sabao", "detergente", "amaciante", "desinfetante", "vaporizador", "pano", "canfora", "naftalina"],
+    "limpeza": ["sabao", "detergente", "amaciante", "desinfetante", "vaporizador", "pano", "canfora", "naftalina",
+                "saco para lavar"],
     # moda
     "tenis": ["tenis", "sapatenis"],
     "calcado": ["sandalia", "chinelo", "bota", "sapato", "sapatilha"],
     "camiseta": ["camiseta", "camisa", "blusa", "regata", "polo"],
     "calca": ["calca", "bermuda", "short", "legging"],
-    "agasalho": ["jaqueta", "moletom", "casaco"],
+    "agasalho": ["jaqueta", "moletom", "casaco", "capa de chuva"],
     "meia": ["meia", "cueca", "calcinha", "sutia"],
     "vestido": ["vestido", "saia", "macacao"],
     "bolsa": ["bolsa", "mochila", "mala", "carteira", "pochete"],
@@ -82,7 +83,7 @@ TIPOS: dict[str, list[str]] = {
     # beleza e saúde
     "perfume": ["perfume", "colonia", "deo parfum", "deodorant"],
     "shampoo": ["shampoo", "condicionador", "mascara capilar", "hair spray", "leave in"],
-    "hidratante": ["hidratante", "creme", "protetor solar", "serum", "sabonete", "locao"],
+    "hidratante": ["hidratante", "protetor solar", "serum", "sabonete", "locao"],
     "maquiagem": ["batom", "rimel", "paleta", "maquiagem", "esmalte", "corretivo", "po facial", "retoque",
                   "magic retouch", "disco de algodao", "cuticula"],
     "secador": ["secador", "chapinha", "prancha", "modelador", "escova modeladora", "escova"],
@@ -96,7 +97,7 @@ TIPOS: dict[str, list[str]] = {
     "fitness": ["halter", "esteira", "bicicleta", "bike", "elastico", "tapete yoga", "corda de pular", "manguito",
                 "ciclismo"],
     "racao": ["racao", "petisco", "areia higienica", "coleira"],
-    "fralda": ["fralda", "lenco umedecido", "mamadeira", "carrinho de bebe"],
+    "fralda": ["fralda", "lenco umedecido", "mamadeira", "carrinho de bebe", "cadeira para auto", "cadeirinha"],
     "brinquedo": ["brinquedo", "lego", "boneca", "quebra cabeca", "boneco", "jogo de cartas", "tabuleiro",
                 "pelucia", "massinha"],
     "automotivo": ["capacete", "pneu", "som automotivo"],
@@ -143,6 +144,10 @@ CATEGORIAS: dict[str, list[str]] = {
 }
 _CATEGORIA_DO_TIPO = {tipo: cat for cat, tipos in CATEGORIAS.items() for tipo in tipos}
 
+# O tipo vem do começo do título (o suficiente para o título curto do post, que tem até 75 caracteres): o final
+# dos títulos da Amazon costuma ser uma lista de usos ("… para placa-mãe, relógio") que enganaria o dicionário.
+_JANELA_TIPO = 80
+
 _STOP_PLURAL = {"mais", "gas", "seis", "dois", "tres", "pais", "lapis", "oculos", "atlas"}
 
 
@@ -180,7 +185,7 @@ def tipo_do_produto(titulo: str, uid: str = "") -> str | None:
     ("amazon:8543111536") e ele vira "livro"."""
     if _RE_UID_LIVRO.match(uid):
         return "livro"
-    palavras = _norm(titulo)
+    palavras = _norm(titulo[:_JANELA_TIPO])
     for i in range(len(palavras)):
         for n in (3, 2, 1):                       # expressões maiores primeiro: "caixa de som" antes de "caixa"
             expr = " ".join(palavras[i:i + n])

@@ -9,6 +9,7 @@ Roda um servidor só em 127.0.0.1 e abre no navegador. Dali dá para:
 Sobe com:  uv run python -m ofertas painel   (ou dê 2 cliques em PAINEL.bat)
 """
 import json
+import re
 import subprocess
 import sys
 import threading
@@ -33,6 +34,8 @@ CAMPOS = [
      "Use o botão 'Detectar IDs' depois de colocar o token."),
     ("TELEGRAM_CHAT_ID", "ID do canal", "Telegram", False,
      "O canal onde o bot posta. Use 'Detectar IDs'."),
+    ("TELEGRAM_CHAT_ID_APPLE", "ID do grupo Apple", "Telegram", False,
+     "Opcional. Grupo só de produtos Apple; sem ele, tudo vai para o canal. Use 'Detectar IDs'."),
     ("ML_ETIQUETA", "Etiqueta do afiliado", "Mercado Livre", False,
      "A 'Etiqueta em uso' que aparece no Linkbuilder do painel de afiliados."),
     ("AMAZON_TAG", "Tag de associado", "Amazon", False,
@@ -129,9 +132,31 @@ acao = Processo()     # ações pontuais (instalar, login, testar)
 
 # ── Ações auxiliares ──────────────────────────────────────────────────
 
+_RE_TITULO_APPLE = re.compile(r"\b(?:apple|iphone|ipad|macbook|imac|airpods?|airtag|ios|mac)\b", re.I)
+
+
+def sugerir_destino(titulo: str) -> str:
+    """"apple" se o NOME do canal/grupo fala de Apple ("Promoções Apple", "iPhone Barato"); senão "geral"."""
+    return "apple" if _RE_TITULO_APPLE.search(titulo or "") else "geral"
+
+
+def _campo_atual(chat_id, username: str, env: dict[str, str]) -> str | None:
+    """Em qual campo do .env este chat já está: "geral", "apple" ou None. Compara o ID numérico e, para canais
+    públicos gravados como @nome, o username."""
+    def igual(valor: str) -> bool:
+        return bool(valor) and (valor == str(chat_id) or (bool(username) and valor.lower() == f"@{username}".lower()))
+    if igual(env.get("TELEGRAM_CHAT_ID", "")):
+        return "geral"
+    if igual(env.get("TELEGRAM_CHAT_ID_APPLE", "")):
+        return "apple"
+    return None
+
+
 def detectar_ids() -> dict:
-    """Consulta o Telegram (getUpdates) e sugere owner id e chat id do canal."""
-    token = ler_env().get("TELEGRAM_BOT_TOKEN", "")
+    """Consulta o Telegram (getUpdates) e lista o seu usuário e os canais/grupos onde o bot apareceu. Cada
+    canal/grupo vem com a sugestão de destino (pelo nome) e o campo que ele já ocupa no .env."""
+    env = ler_env()
+    token = env.get("TELEGRAM_BOT_TOKEN", "")
     if not token:
         return {"erro": "Preencha e salve o token do bot primeiro."}
     try:
@@ -140,23 +165,41 @@ def detectar_ids() -> dict:
     except Exception as e:
         return {"erro": f"Não consegui falar com o Telegram: {e}"}
     if not dados.get("ok"):
-        return {"erro": f"Telegram recusou o token: {dados.get('description', '?')}"}
+        descricao = dados.get("description", "?")
+        if "Conflict" in descricao:
+            return {"erro": "O bot está ligado e já está lendo as mensagens do Telegram. Desligue o bot aqui no "
+                            "painel, clique em Detectar IDs de novo e depois ligue-o outra vez."}
+        return {"erro": f"Telegram recusou o token: {descricao}"}
 
-    pessoas, canais = {}, {}
-    for upd in dados.get("result", []):
-        msg = upd.get("message") or upd.get("channel_post") or {}
-        chat = msg.get("chat") or {}
-        if chat.get("type") == "private" and chat.get("id"):
+    pessoas: dict[int, str] = {}
+    canais: dict[int, dict] = {}
+
+    def anotar_chat(chat: dict) -> None:
+        if not chat.get("id"):
+            return
+        if chat.get("type") == "private":
             nome = " ".join(filter(None, [chat.get("first_name"), chat.get("last_name")]))
             pessoas[chat["id"]] = nome or chat.get("username") or str(chat["id"])
-        elif chat.get("type") in ("channel", "supergroup", "group") and chat.get("id"):
-            canais[chat["id"]] = chat.get("title") or str(chat["id"])
-        fwd = (msg.get("forward_from_chat") or {})
-        if fwd.get("type") == "channel" and fwd.get("id"):
-            canais[fwd["id"]] = fwd.get("title") or str(fwd["id"])
+        elif chat.get("type") in ("channel", "supergroup", "group"):
+            canais[chat["id"]] = {"id": chat["id"], "nome": chat.get("title") or str(chat["id"]),
+                                  "tipo": "canal" if chat["type"] == "channel" else "grupo",
+                                  "username": chat.get("username") or ""}
+
+    for upd in dados.get("result", []):
+        # message/channel_post: alguém escreveu no chat. my_chat_member: o bot foi adicionado (ou removido) de um
+        # chat, o que aparece mesmo antes de qualquer mensagem.
+        for tipo in ("message", "channel_post", "edited_message", "edited_channel_post", "my_chat_member", "chat_member"):
+            msg = upd.get(tipo) or {}
+            anotar_chat(msg.get("chat") or {})
+            origem = msg.get("forward_from_chat") or {}
+            if origem.get("type") == "channel":
+                anotar_chat(origem)
+    for c in canais.values():
+        c["sugestao"] = sugerir_destino(c["nome"])
+        c["atual"] = _campo_atual(c["id"], c["username"], env)
     return {
         "pessoas": [{"id": i, "nome": n} for i, n in pessoas.items()],
-        "canais": [{"id": i, "nome": n} for i, n in canais.items()],
+        "canais": list(canais.values()),
         "vazio": not pessoas and not canais,
     }
 
@@ -241,6 +284,11 @@ class Handler(BaseHTTPRequestHandler):
                 if segredo and not v and atuais.get(chave):
                     continue
                 filtrados[chave] = v
+            geral, apple = filtrados.get("TELEGRAM_CHAT_ID", ""), filtrados.get("TELEGRAM_CHAT_ID_APPLE", "")
+            if geral and geral == apple:
+                self._json({"erro": "O canal geral e o grupo Apple estão com o MESMO ID. Cada um precisa do seu: "
+                                    "use os botões de 'Detectar IDs' e escolha o destino de cada chat."})
+                return
             salvar_env(filtrados)
             self._json({"ok": True})
         elif rota == "/api/start":

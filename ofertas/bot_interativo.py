@@ -10,7 +10,7 @@ from telegram.error import NetworkError
 from telegram.ext import (Application, CallbackQueryHandler, CommandHandler,
                           ContextTypes, MessageHandler, filters)
 
-from . import db, pipeline
+from . import db, destinos, pipeline
 from .config import config
 from .models import Oferta
 from .sources import detectar_fonte
@@ -142,9 +142,10 @@ async def _callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await _status("⚠️ Essa prévia expirou — mande o link de novo.")
         return
     if acao == "post":
-        await postar_oferta(ctx.bot, oferta, config.chat_id)
-        db.registrar(oferta)
-        await _status("✅ Postada no canal!")
+        destino, chat = destinos.chat_para(oferta)   # produto Apple vai para o grupo Apple, se configurado
+        await postar_oferta(ctx.bot, oferta, chat)
+        db.registrar(oferta, destino)
+        await _status("✅ Postada no grupo Apple!" if destino == "apple" else "✅ Postada no canal!")
     else:
         await _status("🗑 Descartada.")
 

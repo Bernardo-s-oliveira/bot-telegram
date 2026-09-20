@@ -68,9 +68,12 @@ def _dias_txt(h: Historico) -> int:
     return max(1, min(config.historico_dias, int(h.dias)))
 
 
-def avaliar(o: Oferta, h: Historico | None) -> str | None:
+def avaliar(o: Oferta, h: Historico | None, queda_minima: int | None = None, so_queda: bool = False) -> str | None:
     """Aprova ou rejeita a oferta. Aprovada: preenche score/faixa/selos e retorna None.
-    Rejeitada: retorna o motivo (texto curto, "categoria (detalhe)")."""
+    Rejeitada: retorna o motivo (texto curto, "categoria (detalhe)").
+
+    `queda_minima` troca o limite da faixa de queda de preço (padrão: filtros.desconto_minimo) e `so_queda`
+    desliga a faixa de campeões: são as regras do grupo Apple (destinos.py)."""
     if not o.preco or o.preco <= 0:
         return "sem preço"
 
@@ -113,9 +116,10 @@ def avaliar(o: Oferta, h: Historico | None) -> str | None:
             return f"desconto suspeito (-{sinal}%, sem como comprovar vendedor)"
     o.suspeita = suspeita
 
-    campeao = (vendas is not None and vendas >= config.campeoes_vendas_minimas
+    campeao = (not so_queda and vendas is not None and vendas >= config.campeoes_vendas_minimas
                and o.nota is not None and o.nota >= config.campeoes_nota_minima)
-    desconto = (queda or 0) >= config.desconto_minimo and prova >= config.prova_social_minima
+    limite_queda = config.desconto_minimo if queda_minima is None else queda_minima
+    desconto = (queda or 0) >= limite_queda and prova >= config.prova_social_minima
     if not (campeao or desconto):
         return "critérios não atingidos"
 
@@ -131,7 +135,9 @@ def avaliar(o: Oferta, h: Historico | None) -> str | None:
     # O post nunca mostra o "De"/percentual da loja: só uma queda comprovada, contra o preço médio do histórico.
     o.selos = []
     o.desconto_verificado = False
-    if suficiente and queda >= _QUEDA_MINIMA_SELO:
+    # a queda que fez a oferta passar tem de aparecer no post: o limite de exibição acompanha o do destino
+    # (grupo Apple: 5%), mas nunca passa de 10%
+    if suficiente and queda >= min(_QUEDA_MINIMA_SELO, limite_queda):
         o.preco_original, o.desconto_pct = round(h.referencia, 2), queda
         o.desconto_verificado = True
         o.selos.append(f"🔻 Caiu {queda}% em relação ao preço médio dos últimos {_dias_txt(h)} dias")
@@ -158,12 +164,13 @@ def avaliar_vendedor(o: Oferta) -> str | None:
     return None
 
 
-def avaliar_todas(ofertas: list[Oferta], historicos: dict[str, Historico]) -> tuple[list[Oferta], dict[str, int]]:
+def avaliar_todas(ofertas: list[Oferta], historicos: dict[str, Historico], queda_minima: int | None = None,
+                  so_queda: bool = False) -> tuple[list[Oferta], dict[str, int]]:
     """Aplica `avaliar` a todas. Retorna (aprovadas, {motivo de rejeição: quantidade})."""
     aprovadas: list[Oferta] = []
     rejeicoes: dict[str, int] = {}
     for o in ofertas:
-        motivo = avaliar(o, historicos.get(o.uid))
+        motivo = avaliar(o, historicos.get(o.uid), queda_minima, so_queda)
         if motivo is None:
             aprovadas.append(o)
         else:

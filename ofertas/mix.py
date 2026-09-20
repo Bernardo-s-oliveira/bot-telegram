@@ -32,10 +32,10 @@ def categoria(o: Oferta) -> str:
     return categoria_do_produto(o.titulo, o.uid) or SEM_CATEGORIA
 
 
-def contagem_recente() -> Counter:
-    """Posts por categoria entre os últimos `janela_posts`."""
+def contagem_recente(destino: str = "geral") -> Counter:
+    """Posts por categoria entre os últimos `janela_posts` do `destino`."""
     contagem: Counter = Counter()
-    for uid, titulo in db.ultimos_titulos(config.mix_janela_posts):
+    for uid, titulo in db.ultimos_titulos(config.mix_janela_posts, destino):
         contagem[categoria_do_produto(titulo, uid) or SEM_CATEGORIA] += 1
     return contagem
 

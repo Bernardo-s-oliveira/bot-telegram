@@ -129,6 +129,27 @@ uv run python -m ofertas simular
 ```
 Todos os critérios estão na seção `selecao:` do `config.yaml`. Os testes: `uv run --with pytest python -m pytest tests`.
 
+## 📦 Amazon
+
+A Amazon vem **ligada** (`fontes.amazon.ativa: true` no `config.yaml`) e precisa só da `AMAZON_TAG` no `.env`; sem ela o bot ignora a Amazon e avisa no log. O post sai com o seu link com a tag. A Amazon informa nota, avaliações e "compras no último mês" (não o total de vendas), e o bot converte isso para comparar com as outras lojas. Não dá para conferir o vendedor na Amazon, então descontos muito grandes só passam com prova forte de vendas.
+
+**Ritmo:** cada departamento gera 4 páginas de ofertas, e com os nichos do painel são dezenas de páginas. Pedir tudo de uma vez leva a captcha, então `fontes.amazon.requisicoes_por_ciclo` (padrão 4) limita quantas páginas a Amazon recebe por ciclo, em rodízio: todas são cobertas ao longo de algumas horas. Se aparecer `Amazon bloqueou a busca` no log, reduza esse número ou aumente `geral.intervalo_minutos`.
+
+## 🍎 Grupo só de produtos Apple
+
+O bot pode publicar em **dois lugares**: produtos Apple (iPhone, iPad, MacBook, Apple Watch, AirPods, AirTag…) vão para um **grupo Apple**, e o resto para o canal geral. Capa, película, pulseira e cabo "compatível com iPhone" são acessórios de terceiros e ficam no canal geral.
+
+**Como ligar:**
+1. Adicione o bot ao grupo Apple.
+2. No grupo, mande `/id` (ou `/id@nomedobot`): ele responde com o ID do grupo (costuma ser negativo, ex.: `-1001234567890`).
+3. Coloque o ID em `TELEGRAM_CHAT_ID_APPLE` no `.env` e reinicie o bot. **Jeito fácil, pelo painel:** clique em **🔎 Detectar IDs**. Cada canal/grupo onde o bot apareceu vira um cartão com dois botões, **📢 Canal geral** e **🍎 Grupo Apple**; o painel destaca o **sugerido pelo nome** (um grupo chamado "Promoções Apple" vem sugerido como Apple) e mostra se aquele chat já é hoje o canal geral ou o grupo Apple. Escolher o destino de um chat nunca mexe no outro campo, e o painel recusa salvar o mesmo ID nos dois. Se o bot estiver ligado, desligue-o antes de detectar (o Telegram só deixa um leitor por vez).
+
+Sem o ID, nada muda: tudo continua indo para o canal geral.
+
+**Como o grupo Apple escolhe:** só posta **queda de preço comprovada** no histórico do bot (a partir de 5%, `apple.queda_minima`; Apple raramente cai muito, então o limite é baixo e o post mostra a queda desde o primeiro %), porque Apple raramente entra em promoção grande e o "de" inflado é comum nesses produtos. Por isso **nas primeiras horas ele não posta nada**: precisa de ~1 dia de coleta para saber o preço normal de cada produto. Recondicionados, seminovos, usados e "vitrine" são ignorados. Ele não usa o mix de categorias, e variedade e histórico de posts são contados só sobre o próprio grupo. Como as páginas de ofertas quase nunca trazem Apple, o bot faz **buscas** (`apple.buscas`) no Mercado Livre e na Amazon só para esse grupo; de cada busca só entra o que é realmente produto Apple.
+
+`uv run python -m ofertas simular` mostra as escolhas dos dois destinos. Links que você cola no privado do bot também vão para o grupo certo (produto Apple → grupo Apple).
+
 ## Ajustes — `config.yaml`
 Intervalo entre ciclos, quantos posts por vez, desconto mínimo, horário ativo e o **escopo do canal**. Por padrão o bot pega **ofertas de todas as categorias**. Para focar num nicho (tecnologia, moda, casa, pet…), preencha as listas de `categorias`/`departamentos`/`buscas` no `config.yaml` — há exemplos comentados dentro do arquivo. Edite e **reinicie o bot** (ele só lê a configuração ao iniciar).
 

@@ -27,6 +27,9 @@ def _conn():
             " preco REAL,"
             " postada_em TEXT)"
         )
+        if "destino" not in {linha[1] for linha in c.execute("PRAGMA table_info(postadas)")}:
+            # bancos anteriores ao grupo Apple: tudo o que já foi postado foi para o canal geral
+            c.execute("ALTER TABLE postadas ADD COLUMN destino TEXT NOT NULL DEFAULT 'geral'")
         c.execute("CREATE TABLE IF NOT EXISTS estado (chave TEXT PRIMARY KEY, valor TEXT NOT NULL)")
         c.execute("CREATE TABLE IF NOT EXISTS precos (uid TEXT NOT NULL, preco REAL NOT NULL, em TEXT NOT NULL)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_precos_uid ON precos (uid, em)")
@@ -61,27 +64,31 @@ def ja_postada(uid: str, dentro_de_dias: int) -> bool:
     return bool(ultima) and (dt.datetime.now() - ultima[0]) < dt.timedelta(days=dentro_de_dias)
 
 
-def registrar(oferta: Oferta) -> None:
+def registrar(oferta: Oferta, destino: str = "geral") -> None:
+    """Marca a oferta como postada em `destino` ("geral" ou "apple")."""
     with _conn() as c:
         c.execute(
-            "INSERT OR REPLACE INTO postadas (uid, plataforma, titulo, preco, postada_em)"
-            " VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO postadas (uid, plataforma, titulo, preco, postada_em, destino)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
             (oferta.uid, oferta.plataforma, oferta.titulo, oferta.preco,
-             dt.datetime.now().isoformat(timespec="seconds")),
+             dt.datetime.now().isoformat(timespec="seconds"), destino),
         )
 
 
-def titulos_postados_desde(horas: float, agora: dt.datetime | None = None) -> list[tuple[str, str]]:
-    """(uid, título) dos posts das últimas `horas` (para a regra de variedade)."""
+def titulos_postados_desde(horas: float, agora: dt.datetime | None = None,
+                           destino: str = "geral") -> list[tuple[str, str]]:
+    """(uid, título) dos posts do `destino` nas últimas `horas` (para a regra de variedade)."""
     desde = ((agora or dt.datetime.now()) - dt.timedelta(hours=horas)).isoformat(timespec="seconds")
     with _conn() as c:
-        return list(c.execute("SELECT uid, titulo FROM postadas WHERE postada_em >= ?", (desde,)))
+        return list(c.execute("SELECT uid, titulo FROM postadas WHERE postada_em >= ? AND destino = ?",
+                              (desde, destino)))
 
 
-def ultimos_titulos(n: int) -> list[tuple[str, str]]:
-    """(uid, título) dos últimos `n` posts (mais recentes primeiro), para o mix de categorias."""
+def ultimos_titulos(n: int, destino: str = "geral") -> list[tuple[str, str]]:
+    """(uid, título) dos últimos `n` posts do `destino` (mais recentes primeiro), para o mix de categorias."""
     with _conn() as c:
-        return list(c.execute("SELECT uid, titulo FROM postadas ORDER BY postada_em DESC LIMIT ?", (n,)))
+        return list(c.execute("SELECT uid, titulo FROM postadas WHERE destino = ? ORDER BY postada_em DESC LIMIT ?",
+                              (destino, n)))
 
 
 def ler_estado(chave: str) -> str | None:

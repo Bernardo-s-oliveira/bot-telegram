@@ -307,6 +307,42 @@ def gerar_links_afiliado(ofertas: list[Oferta]) -> None:
             ctx.close()
 
 
+# ── Busca por termos (grupo Apple) ───────────────────────────────────
+
+def buscar_termos(termos: list[str]) -> list[Oferta]:
+    """Ofertas das páginas de busca do ML para cada termo (ex.: "apple iphone"). A página de ofertas quase
+    nunca traz produto Apple, então o grupo Apple precisa de busca própria. As listagens de busca barram
+    requisições simples (pedem verificação de conta) mas abrem no navegador logado do bot, que é o que usamos."""
+    from playwright.sync_api import sync_playwright
+
+    if not tem_sessao():
+        raise RuntimeError("Sessão do ML não encontrada — rode: uv run python -m ofertas ml-login")
+    achadas: dict[str, Oferta] = {}
+    with sync_playwright() as pw:
+        ctx = _abrir_contexto(pw, headless=True)
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        try:
+            for termo in termos:
+                url = "https://lista.mercadolivre.com.br/" + re.sub(r"\s+", "-", termo.strip().lower())
+                try:
+                    page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(2500)
+                    if "login" in page.url or "account-verification" in page.url:
+                        raise RuntimeError("Sessão do ML expirou — rode de novo: uv run python -m ofertas ml-login")
+                    novas = _parse_pagina(page.content())
+                except RuntimeError:
+                    raise
+                except Exception as e:
+                    log.warning("Busca '%s' no ML falhou: %s", termo, type(e).__name__)
+                    continue
+                for o in novas:
+                    achadas.setdefault(o.id_produto, o)
+                log.info("Mercado Livre busca '%s': %d itens", termo, len(novas))
+        finally:
+            ctx.close()
+    return list(achadas.values())
+
+
 # ── Reputação do vendedor (página do produto, navegador logado) ──────
 
 # Bloco de tracking da página do produto, específico do anúncio (verificado em 2026-09-19), ex.:

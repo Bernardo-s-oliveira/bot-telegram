@@ -33,6 +33,31 @@ divulgacao:
     Garantiu sua compra com desconto?
     Use #cacador_promo e compartilhe nas redes!
 
+# Grupo Apple: produto Apple vai para um grupo próprio (TELEGRAM_CHAT_ID_APPLE no .env); o resto, para o canal
+# geral. Sem o ID do grupo no .env, nada muda e tudo continua indo para o canal. O grupo Apple posta só QUEDAS DE
+# PREÇO COMPROVADAS (promoção grande em Apple é rara, por isso o limite é bem menor que o do canal geral) e não
+# usa o mix de categorias. Como a página de ofertas do ML quase nunca traz Apple, o bot também faz BUSCAS.
+apple:
+  ativo: true
+  max_posts_por_ciclo: 3
+  amazon_termos_por_ciclo: 2   # quantos termos de `buscas` a Amazon recebe por ciclo (rodízio; 0 = todos)
+  queda_minima: 5              # % mínimo de queda comprovada no histórico (o canal geral usa filtros.desconto_minimo).
+                               # Preço de Apple mexe pouco, então o limite é baixo; o post mostra a queda a partir deste valor.
+  so_queda_de_preco: true      # false = também posta "campeões" (muito vendidos e bem avaliados) sem queda
+  buscas:                      # termos buscados no ML (só entra o que é produto Apple, não capa nem película)
+    - apple iphone
+    - apple ipad
+    - apple macbook
+    - airpods apple
+    - apple watch
+  palavras_bloqueadas:         # o grupo Apple ignora produtos com estas palavras no título ([] = nenhuma)
+    - recondicionado
+    - seminovo
+    - usado
+    - vitrine
+    - open box
+    - swap
+
 # Mix de categorias: fatia-alvo dos posts por categoria (soma 100). O bot olha os últimos `janela_posts`
 # posts, vê quais categorias estão abaixo da meta e dá um bônus às ofertas delas (e desconta as que já
 # passaram). É uma preferência, não uma cota rígida: sem oferta boa numa categoria, a vaga vai para outra —
@@ -101,9 +126,13 @@ fontes:
     #   MLB1246: Beleza e Cuidado Pessoal
 
   amazon:
-    ativa: false
+    ativa: true                # precisa de AMAZON_TAG no .env (sem ela, o bot ignora a Amazon e avisa no log)
     paginas: 1                 # páginas por listagem de ofertas (~24-48 itens cada)
-    requisicoes_por_ciclo: 0   # rodízio: quantas páginas de busca por ciclo (0 = todas de uma vez)
+    # Rodízio: quantas páginas a Amazon recebe POR CICLO. Cada departamento gera 4 páginas de ofertas; com
+    # muitos departamentos (os nichos do painel) são dezenas de páginas, e pedir tudo de uma vez leva a captcha.
+    # 0 = todas de uma vez (só faça com poucos departamentos).
+    requisicoes_por_ciclo: 4
+    pausa_apos_bloqueio_minutos: 60   # se a Amazon bloquear (captcha/503), o bot espera isto antes de tentar de novo (0 = não espera)
     departamentos: {}          # vazio = ofertas de todas as categorias.
     # Para um nicho, troque por (alias: nome). Exemplos de departamentos da Amazon:
     #   electronics: Eletrônicos

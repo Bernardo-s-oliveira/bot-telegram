@@ -60,6 +60,9 @@ PAGINA = r"""<!doctype html>
   .toast.err{background:var(--err)}
   .ids{margin-top:10px}
   .idbtn{display:block;width:100%;text-align:left;margin-top:6px}
+  .chat{border:1px solid var(--bd);border-radius:10px;padding:10px 12px;margin-top:8px;background:var(--card2)}
+  .chat .linha{display:flex;gap:8px;margin-top:8px}
+  .chat .linha button{flex:1}
   .nichos-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
   .nicho{display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid var(--bd);
          border-radius:10px;background:var(--bg);cursor:pointer;user-select:none;transition:.12s}
@@ -141,7 +144,8 @@ let CFG = {}, statusAtual = {};
 const CAMPOS = [
   ["TELEGRAM_BOT_TOKEN","Token do bot","Telegram",true,"Crie no @BotFather com /newbot e cole aqui."],
   ["TELEGRAM_OWNER_ID","Seu user ID","Telegram",false,"Use “Detectar IDs” depois de salvar o token."],
-  ["TELEGRAM_CHAT_ID","ID do canal","Telegram",false,"O canal onde o bot posta. Use “Detectar IDs”."],
+  ["TELEGRAM_CHAT_ID","ID do canal Geral","Telegram",false,"O canal onde o bot posta. Use “Detectar IDs”."],
+  ["TELEGRAM_CHAT_ID_APPLE","ID do canal Apple","Telegram",false,"Opcional: grupo só de produtos Apple. Sem ele, tudo vai para o canal."],
   ["ML_ETIQUETA","Etiqueta do afiliado","Mercado Livre",false,"A “Etiqueta em uso” do Linkbuilder."],
   ["AMAZON_TAG","Tag de associado","Amazon",false,"Sua tag do Amazon Associados (ex: seunome-20)."],
   ["AMAZON_CREDENTIAL_ID","Creators API — ID","Amazon",false,"Opcional (busca automática oficial)."],
@@ -170,7 +174,8 @@ async function carregarCfg(){ CFG = await (await fetch("/api/config")).json(); m
 async function salvar(){
   const body = {};
   for(const [k] of CAMPOS){ body[k] = $("#f_"+k).value.trim(); }
-  await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  const r = await (await fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})).json();
+  if(r.erro){ toast(r.erro, true); return; }
   toast("Configuração salva!");
   await carregarCfg(); atualizar();
 }
@@ -187,11 +192,35 @@ async function detectarIds(){
   let h = "";
   if(r.pessoas.length){ h += `<p class="muted">Clique no <b>seu usuário</b> (define o dono):</p>`;
     for(const p of r.pessoas) h += `<button class="idbtn" onclick="setId('TELEGRAM_OWNER_ID','${p.id}')">👤 ${p.nome} — <code>${p.id}</code></button>`; }
-  if(r.canais.length){ h += `<p class="muted" style="margin-top:10px">Clique no <b>seu canal</b>:</p>`;
-    for(const c of r.canais) h += `<button class="idbtn" onclick="setId('TELEGRAM_CHAT_ID','${c.id}')">📢 ${c.nome} — <code>${c.id}</code></button>`; }
+  if(r.canais.length){ h += `<p class="muted" style="margin-top:10px">Para cada canal/grupo, escolha <b>onde ele entra</b>.
+      O botão destacado é a sugestão pelo nome do canal:</p>`;
+    for(const c of r.canais) h += cartaoChat(c); }
   box.innerHTML = h;
 }
-function setId(campo,val){ $("#f_"+campo).value = val; toast("Preenchido — não esqueça de salvar."); }
+
+const DESTINOS = {geral:{campo:"TELEGRAM_CHAT_ID", nome:"canal geral", botao:"📢 Canal geral"},
+                  apple:{campo:"TELEGRAM_CHAT_ID_APPLE", nome:"grupo Apple", botao:"🍎 Grupo Apple"}};
+function esc(t){ return String(t).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
+// Um cartão por canal/grupo detectado: dois botões (canal geral / grupo Apple), com o sugerido em destaque
+// e o campo que aquele chat já ocupa hoje. Assim o ID do grupo Apple não vai parar no canal geral por engano.
+function cartaoChat(c){
+  const atual = c.atual ? `<span class="muted"> · hoje é o <b>${DESTINOS[c.atual].nome}</b></span>` : "";
+  const botao = d => `<button class="${c.sugestao===d?"pri":""}" onclick="setId('${DESTINOS[d].campo}','${c.id}')">`
+    + `${DESTINOS[d].botao}${c.sugestao===d?" — sugerido":""}</button>`;
+  return `<div class="chat"><b>${esc(c.nome)}</b> <span class="muted">(${c.tipo}) <code>${c.id}</code></span>${atual}
+    <div class="linha">${botao("geral")}${botao("apple")}</div></div>`;
+}
+function setId(campo,val){
+  // o mesmo ID nunca fica nos dois campos: ao mover um chat, ele sai do outro
+  const outro = {TELEGRAM_CHAT_ID:"TELEGRAM_CHAT_ID_APPLE", TELEGRAM_CHAT_ID_APPLE:"TELEGRAM_CHAT_ID"}[campo];
+  let aviso = "";
+  if(outro && $("#f_"+outro).value.trim() === String(val)){
+    $("#f_"+outro).value = "";
+    aviso = ` (tirei do campo ${outro==="TELEGRAM_CHAT_ID" ? "do canal geral" : "do grupo Apple"}, que tinha o mesmo ID)`;
+  }
+  $("#f_"+campo).value = val;
+  toast("Preenchido"+aviso+" — não esqueça de salvar.");
+}
 
 async function acao(nome){
   const r = await (await fetch("/api/acao",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({nome})})).json();
