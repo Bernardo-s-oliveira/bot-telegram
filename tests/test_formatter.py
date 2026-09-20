@@ -3,7 +3,7 @@ import re
 
 import pytest
 
-from ofertas.formatter import montar_caption, titulo_curto
+from ofertas.formatter import montar_caption, preco_por_unidade, titulo_curto
 from ofertas.models import Oferta
 from ofertas.tipos import tipo_do_produto
 
@@ -130,14 +130,13 @@ def test_tipo_do_produto(titulo, tipo):
 
 # ── layout do post ───────────────────────────────────────────────────
 
-def test_layout_do_post_preco_nota_vendas_e_loja_em_linhas_separadas():
+def test_layout_do_post_preco_depois_nota_e_vendas_na_mesma_linha_e_a_loja_no_fim():
     o = Oferta("mercadolivre", "1", "Tênis Masculino Kappa Park 2.0 Original", "x", preco=58.55, nota=4.9, vendas=50_000)
     assert montar_caption(o) == (
-        "🔥 <b>Tênis Masculino Kappa Park 2.0 Original</b>\n"
+        "👟 <b>Tênis Masculino Kappa Park 2.0 Original</b>\n"
         "\n"
         "💰 <b>R$ 58,55</b>\n"
-        "⭐ 4,9\n"
-        "🏆 +50 mil vendidos\n"
+        "⭐ 4,9 · +50 mil vendidos\n"
         "🛒 Loja: Mercado Livre"
     )
 
@@ -152,10 +151,115 @@ def test_sem_nota_nem_vendas_o_post_nao_tem_linhas_vazias_de_prova_social():
     assert "⭐" not in texto and "🏆" not in texto and "\n\n\n" not in texto
 
 
-def test_selos_cupom_e_extras_ficam_entre_as_vendas_e_a_loja():
+def test_selos_cupom_e_extras_ficam_entre_a_linha_de_vendas_e_a_loja():
     o = Oferta("mercadolivre", "1", "Item", "x", preco=58.55, nota=4.9, vendas=50_000,
                selos=["📉 Menor preço dos últimos 30 dias"], cupom="🎟 USAR CUPOM: ativar na página → R$ 50,00",
                extra="🚚 Frete grátis")
     linhas = montar_caption(o).split("\n")
-    assert linhas[2:] == ["💰 <b>R$ 58,55</b>", "⭐ 4,9", "🏆 +50 mil vendidos", "📉 Menor preço dos últimos 30 dias",
+    assert linhas[2:] == ["💰 <b>R$ 58,55</b>", "⭐ 4,9 · +50 mil vendidos", "📉 Menor preço dos últimos 30 dias",
                           "🎟 USAR CUPOM: ativar na página → R$ 50,00", "🚚 Frete grátis", "🛒 Loja: Mercado Livre"]
+
+
+# ── preço por unidade ────────────────────────────────────────────────
+
+@pytest.mark.parametrize("titulo, preco, esperado", [
+    ("Papel Higiênico Supra Folha Tripla 24 Rolos", 34.90, "R$ 1,45/rolo"),
+    ("Kit 6 Pares Meias Puma Cano Médio Alto", 60.0, "R$ 10,00/par"),
+    ("Vitamina C 1000mg 120 Cápsulas", 60.0, "R$ 0,50/cápsula"),
+    ("Papel Toalha Scott 6 Rolos 60 Folhas", 24.0, "R$ 4,00/rolo"),      # "folhas" não é unidade
+    ("Bateria Alcalina AA 12 Pilhas", 36.0, "R$ 3,00/pilha"),
+    ("Caixa com 12 Unidades Barra de Cereal", 24.0, "R$ 2,00/unidade"),
+    ("Lâmina de Barbear 10 Lâminas", 50.0, "R$ 5,00/lâmina"),
+])
+def test_preco_por_unidade(titulo, preco, esperado):
+    assert preco_por_unidade(titulo, preco) == esperado
+
+
+@pytest.mark.parametrize("titulo", [
+    "Fralda Pampers 4 Pacotes com 30 unidades",      # embalagem dentro de embalagem: seriam 120
+    "Papel Higiênico Leve 24 Pague 20 Rolos",         # paga por menos do que leva
+    "Pilha AA 2x12 unidades",                          # 2 × 12
+    "Papel Higiênico 12 Rolos + 4 Pares de Meia",      # duas unidades diferentes
+    "Papel Higiênico 12 Rolos 30 Rolos Folha Dupla",   # duas quantidades diferentes
+    "Creatina Monohidratada 500g",                     # nenhuma unidade contável
+    "Shampoo 750ml Hidratante",
+    "Kit 10 Potes de Vidro 640ml",                     # "pote" não está na lista
+    "Notebook Gamer 1 Unidade",                        # 1 não é "por unidade"
+    "Smart TV 50 polegadas",
+])
+def test_preco_por_unidade_na_duvida_nao_mostra(titulo):
+    assert preco_por_unidade(titulo, 100.0) is None
+
+
+def test_preco_por_unidade_sem_preco():
+    assert preco_por_unidade("Papel Higiênico 24 Rolos", None) is None
+    assert preco_por_unidade("Papel Higiênico 24 Rolos", 0) is None
+
+
+def test_post_do_exemplo_papel_higienico():
+    o = Oferta("mercadolivre", "1", "Papel Higiênico Supra Folha Tripla 24 Rolos", "x", preco=34.90,
+               nota=4.9, vendas=100_000, loja_oficial=True)
+    assert montar_caption(o) == (
+        "🧻 <b>Papel Higiênico Supra Folha Tripla 24 Rolos</b>\n"
+        "\n"
+        "💰 <b>R$ 34,90</b> (R$ 1,45/rolo)\n"
+        "⭐ 4,9 · +100 mil vendidos · Loja oficial\n"
+        "🛒 Loja: Mercado Livre"
+    )
+
+
+def test_preco_por_unidade_tambem_na_linha_por_da_queda_comprovada():
+    o = Oferta("mercadolivre", "1", "Papel Higiênico 24 Rolos", "x", preco=34.90, preco_original=42.0,
+               desconto_verificado=True)
+    assert "💰 Por: <b>R$ 34,90</b> (R$ 1,45/rolo)" in montar_caption(o)
+
+
+# ── emoji do produto ─────────────────────────────────────────────────
+
+@pytest.mark.parametrize("titulo, emoji", [
+    ("Papel Higiênico Supra Folha Tripla 24 Rolos", "🧻"),
+    ("Anker Soundcore P20i Fone de Ouvido Bluetooth", "🎧"),
+    ("Chuveiro Lorenzetti Advanced 7500W", "🚿"),
+    ("Creatina Monohidratada Dark Lab 500g", "💪"),
+    ("Tênis Masculino Kappa Park 2.0", "👟"),
+    ("Sociedade do cansaço", "🔥"),                    # tipo desconhecido: o 🔥 de sempre
+])
+def test_emoji_do_produto_abre_o_post(titulo, emoji):
+    assert montar_caption(Oferta("amazon", "1", titulo, "x", preco=10.0)).startswith(f"{emoji} <b>")
+
+
+def test_nenhum_emoji_orfao():
+    from ofertas.tipos import EMOJIS, TIPOS
+    assert set(EMOJIS) <= set(TIPOS)                  # todo emoji pertence a um tipo que existe
+
+
+# ── linha de nota, vendas e loja oficial ─────────────────────────────
+
+def linha_social(o):
+    linhas = montar_caption(o).split("\n")
+    return next((l for l in linhas if "⭐" in l or "vendidos" in l or "Loja oficial" in l), None)
+
+
+def test_linha_social_com_tudo():
+    o = Oferta("mercadolivre", "1", "Item", "x", preco=10.0, nota=4.9, vendas=100_000, loja_oficial=True)
+    assert linha_social(o) == "⭐ 4,9 · +100 mil vendidos · Loja oficial"
+
+
+def test_linha_social_sem_loja_oficial_nao_deixa_separador_sobrando():
+    o = Oferta("mercadolivre", "1", "Item", "x", preco=10.0, nota=4.9, vendas=100_000)
+    assert linha_social(o) == "⭐ 4,9 · +100 mil vendidos"
+
+
+def test_linha_social_so_com_nota_ou_so_com_loja_oficial():
+    assert linha_social(Oferta("shopee", "1", "Item", "x", preco=10.0, nota=4.7)) == "⭐ 4,7"
+    assert linha_social(Oferta("mercadolivre", "1", "Item", "x", preco=10.0, loja_oficial=True)) == "Loja oficial"
+
+
+def test_linha_social_na_amazon_diz_compras_no_ultimo_mes():
+    o = Oferta("amazon", "1", "Item", "x", preco=10.0, nota=4.5, vendas=8_000, vendas_mensal=True)
+    assert linha_social(o) == "⭐ 4,5 · +8 mil compras no último mês"
+
+
+def test_loja_oficial_nao_aparece_duas_vezes():
+    o = Oferta("mercadolivre", "1", "Item", "x", preco=10.0, nota=4.9, vendas=1_000, loja_oficial=True)
+    assert montar_caption(o).count("Loja oficial") == 1

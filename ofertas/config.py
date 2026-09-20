@@ -84,6 +84,21 @@ class Config:
         except Exception:
             pass
 
+        # Mix de categorias (ofertas/mix.py): fatia-alvo dos posts por categoria
+        mix = y.get("mix") or {}
+        self.mix_ativo: bool = bool(mix.get("ativo", True))
+        self.mix_janela_posts: int = int(mix.get("janela_posts", 40))
+        self.mix_forca: float = float(mix.get("forca", 1.5))
+        self.mix_tecnologia_preco_max: float = float(mix.get("tecnologia_preco_maximo", 300))
+        self.mix_eletro_exige_queda: bool = bool(mix.get("eletrodomesticos_exige_queda_real", True))
+        self.mix_sem_categoria: float = float(mix.get("sem_categoria", 0))
+        self.mix_metas: dict[str, float] = {
+            str(k): float(v) for k, v in (mix.get("metas") or {
+                "casa_e_cozinha": 22, "moda": 20, "beleza": 15, "limpeza_e_higiene": 10, "tecnologia": 10,
+                "esporte": 6, "saude": 5, "brinquedos_e_bebes": 5, "eletrodomesticos": 5, "outros": 2,
+            }).items()
+        }
+
         # Post de divulgação do canal (link/hashtag), publicado de tempos em tempos em vez de em todo post
         div = y.get("divulgacao") or {}
         self.divulgacao_ativa: bool = bool(div.get("ativa", True))

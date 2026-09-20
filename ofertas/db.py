@@ -71,11 +71,17 @@ def registrar(oferta: Oferta) -> None:
         )
 
 
-def titulos_postados_desde(horas: float, agora: dt.datetime | None = None) -> list[str]:
-    """Títulos postados nas últimas `horas` (para a regra de variedade)."""
+def titulos_postados_desde(horas: float, agora: dt.datetime | None = None) -> list[tuple[str, str]]:
+    """(uid, título) dos posts das últimas `horas` (para a regra de variedade)."""
     desde = ((agora or dt.datetime.now()) - dt.timedelta(hours=horas)).isoformat(timespec="seconds")
     with _conn() as c:
-        return [t for (t,) in c.execute("SELECT titulo FROM postadas WHERE postada_em >= ?", (desde,))]
+        return list(c.execute("SELECT uid, titulo FROM postadas WHERE postada_em >= ?", (desde,)))
+
+
+def ultimos_titulos(n: int) -> list[tuple[str, str]]:
+    """(uid, título) dos últimos `n` posts (mais recentes primeiro), para o mix de categorias."""
+    with _conn() as c:
+        return list(c.execute("SELECT uid, titulo FROM postadas ORDER BY postada_em DESC LIMIT ?", (n,)))
 
 
 def ler_estado(chave: str) -> str | None:

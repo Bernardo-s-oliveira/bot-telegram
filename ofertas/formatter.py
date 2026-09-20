@@ -3,7 +3,7 @@ import re
 from html import escape
 
 from .models import Oferta
-from .tipos import tipo_do_produto
+from .tipos import emoji_do_produto, tipo_do_produto
 
 _LOJA = {
     "mercadolivre": "Mercado Livre",
@@ -72,29 +72,68 @@ def contagem_br(n: int) -> str:
     return str(n)
 
 
-def _linhas_prova_social(o: Oferta) -> list[str]:
-    """Nota e vendas, cada uma na sua linha."""
-    linhas = []
+# ── preço por unidade ────────────────────────────────────────────────
+# Só produtos vendidos em quantidade contável, com o número colado no nome da unidade ("24 Rolos",
+# "3 Pares", "120 Cápsulas"). Um valor errado engana o comprador, então na dúvida NÃO mostra nada.
+_UNIDADES = (
+    (r"rolos?", "rolo"), (r"pares?", "par"), (r"unidades?|unids?\.?|und\.?|un\b", "unidade"),
+    (r"c[áa]psulas?|caps\b", "cápsula"), (r"comprimidos?", "comprimido"), (r"sach[êe]s?", "sachê"),
+    (r"fraldas?", "fralda"), (r"len[çc]os?", "lenço"), (r"doses?", "dose"), (r"pilhas?", "pilha"),
+    (r"l[âa]minas?", "lâmina"),
+)
+_RE_UNIDADE = re.compile(r"(?<![\d.,])(\d{1,4})\s*(" + "|".join(f"(?:{r})" for r, _ in _UNIDADES) + r")(?![a-zà-ú])",
+                         re.I)
+# Embalagem dentro de embalagem ("4 pacotes com 30 unidades"), "leve X pague Y" e "2 x 12": a conta seria outra
+_RE_AMBIGUO = re.compile(r"\d+\s*(?:pacotes?|caixas?|fardos?|packs?|kits?|displays?)\b|\bleve\b|\bpague\b|\d\s*[x×]\s*\d",
+                         re.I)
+
+
+def preco_por_unidade(titulo: str, preco: float | None) -> str | None:
+    """"R$ 1,45/rolo" para "Papel Higiênico … 24 Rolos" a R$ 34,90; None se houver qualquer dúvida
+    (nenhuma ou várias quantidades diferentes, embalagem dentro de embalagem, "leve X pague Y")."""
+    if not preco or _RE_AMBIGUO.search(titulo):
+        return None
+    achados = {}
+    for m in _RE_UNIDADE.finditer(titulo):
+        rotulo = next(r for padrao, r in _UNIDADES if re.fullmatch(padrao, m.group(2), re.I))
+        achados[(int(m.group(1)), rotulo)] = None
+    if len(achados) != 1:
+        return None
+    (quantidade, rotulo), = achados
+    if quantidade < 2:
+        return None
+    return f"{preco_br(preco / quantidade)}/{rotulo}"
+
+
+def _linha_prova_social(o: Oferta) -> str:
+    """Nota, vendas e loja oficial numa linha só: "⭐ 4,9 · +100 mil vendidos · Loja oficial"."""
+    partes = []
     if o.nota:
-        linhas.append(f"⭐ {o.nota:.1f}".replace(".", ","))
+        partes.append(f"⭐ {o.nota:.1f}".replace(".", ","))
     if o.vendas:
         rotulo = "compras no último mês" if o.vendas_mensal else "vendidos"
-        linhas.append(f"🏆 +{contagem_br(o.vendas)} {rotulo}")
-    return linhas
+        partes.append(f"+{contagem_br(o.vendas)} {rotulo}")
+    if o.loja_oficial:
+        partes.append("Loja oficial")
+    return " · ".join(partes)
 
 
 def montar_caption(o: Oferta) -> str:
-    linhas = [f"🔥 <b>{escape(titulo_curto(o.titulo))}</b>", ""]
+    linhas = [f"{emoji_do_produto(o.titulo, o.uid)} <b>{escape(titulo_curto(o.titulo))}</b>", ""]
+    unidade = preco_por_unidade(o.titulo, o.preco)
+    por_unidade = f" ({unidade})" if unidade else ""
 
     # O "De" e o percentual da loja nunca aparecem. Só uma queda comprovada pelo histórico de preços do bot
     # (`desconto_verificado`): "De" é o preço médio recente, e o percentual vai no selo, uma vez só.
     if o.preco and o.desconto_verificado and o.preco_original and o.preco_original > o.preco:
         linhas.append(f"❌ De: <s>{preco_br(o.preco_original)}</s>")
-        linhas.append(f"💰 Por: <b>{preco_br(o.preco)}</b>")
+        linhas.append(f"💰 Por: <b>{preco_br(o.preco)}</b>{por_unidade}")
     elif o.preco:
-        linhas.append(f"💰 <b>{preco_br(o.preco)}</b>")
+        linhas.append(f"💰 <b>{preco_br(o.preco)}</b>{por_unidade}")
 
-    linhas += _linhas_prova_social(o)
+    social = _linha_prova_social(o)
+    if social:
+        linhas.append(social)
     linhas += [escape(s) for s in o.selos]
     if o.cupom:
         linhas.append(escape(o.cupom))

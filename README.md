@@ -101,7 +101,7 @@ O objetivo não é postar o maior desconto, e sim a **melhor compra**. O descont
    - **Queda de preço** — queda **comprovada** no histórico (≥ 25%) + prova social (vendas/avaliações). Só existe depois de ~1 dia de coleta.
 3. **Score** — dentro de cada faixa, ordena por vendas, nota (com peso menor se há poucas avaliações), queda comprovada, preço vs. histórico e preço absoluto. Sem repetir o mesmo produto (nem em outra cor/loja) e sem uma plataforma dominar o ciclo.
 
-**O que o post mostra sobre preço:** só `💰 R$ X`, mais nota e vendas. Quando o histórico comprova uma queda de 10% ou mais, aparece também `❌ De: R$ Y` (o **preço médio recente**, não o "De" da loja) e um selo `🔻 Caiu N% em relação ao preço médio dos últimos D dias` — o percentual aparece uma vez só. `📉 Menor preço dos últimos D dias` só sai se o preço já esteve mais alto.
+**O que o post mostra sobre preço:** `💰 R$ X`, mais nota e vendas, cada um na sua linha, e a loja no fim (`🛒 Loja: Mercado Livre`). O post abre com o emoji do tipo do produto (🧻 papel higiênico, 🎧 fone, 🚿 chuveiro…; 🔥 quando o tipo é desconhecido). Produtos vendidos em quantidade contável mostram o **preço por unidade** — `💰 R$ 34,90 (R$ 1,45/rolo)` — para rolos, pares, unidades, cápsulas, comprimidos, sachês, fraldas, lenços, doses, pilhas e lâminas. Na dúvida ("4 pacotes com 30 unidades", "leve 24 pague 20", "2x12", duas quantidades diferentes) o bot **não mostra** o valor, porque um número errado engana o comprador. Quando o histórico comprova uma queda de 10% ou mais, aparece também `❌ De: R$ Y` (o **preço médio recente**, não o "De" da loja) e um selo `🔻 Caiu N% em relação ao preço médio dos últimos D dias` — o percentual aparece uma vez só. `📉 Menor preço dos últimos D dias` só sai se o preço já esteve mais alto.
 
 **Descontos que parecem bons demais** (preço errado, vendedor duvidoso):
 - preço abaixo de 50% dos anúncios iguais coletados no ciclo é descartado como suspeito;
@@ -109,6 +109,12 @@ O objetivo não é postar o maior desconto, e sim a **melhor compra**. O descont
 - vendedor confiável ganha selo no post ("🛡️ Loja oficial", "🏅 Vendedor MercadoLíder Platinum").
 
 **Cupons (Mercado Livre):** na mesma visita à página do produto, o bot lê os cupons e adiciona ao post uma linha como *"🎟 R$ 106,32 com cupom (ative na página do produto)"*. Só anuncia cupom que vale para **1 unidade**: o "20% OFF com Cupom" que aparece na listagem muitas vezes exige compra mínima acima do preço do item, ou só vale "por seguir a loja" — esses são ignorados. Os cupons que a página lista se ativam com um clique, sem código. Desligue com `buscar_cupons: false`. Amazon e Shopee ficam sem cupom (não há dado confiável nas páginas que o bot lê).
+
+**Mix de categorias:** cada categoria tem uma fatia-alvo dos posts (`mix.metas` no `config.yaml`; padrão: Casa e Cozinha 22%, Moda 20%, Beleza 15%, Limpeza e Higiene 10%, Tecnologia 10%, Esporte 6%, Saúde 5%, Brinquedos e Bebês 5%, Eletrodomésticos 5%, outros 2%). O bot olha os últimos 40 posts e dá um bônus às ofertas das categorias abaixo da meta — é uma **preferência, não uma cota rígida**: sem oferta boa numa categoria, a vaga vai para outra, então a composição real depende do que as lojas trazem. Duas categorias têm regra própria:
+- **Tecnologia** só até `tecnologia_preco_maximo` (R$ 300) e só acessórios, fones e casa inteligente; TV, notebook, monitor e tablet contam como "outros";
+- **Eletrodomésticos** só com **queda de preço comprovada** (tíquete alto, risco maior de "de" inflado) — por isso só aparecem depois de ~1 dia de histórico.
+
+O tipo de cada produto vem de um dicionário de palavras (`ofertas/tipos.py`); livros da Amazon são reconhecidos pelo código do produto (ISBN). `uv run python -m ofertas simular` mostra a categoria de cada oferta escolhida.
 
 **Variedade e apresentação:**
 - O bot não repete o mesmo **tipo de produto** (creatina, chuveiro, balança, fone…) numa janela de horas (`variedade.janela_horas`, padrão 4) nem dentro do mesmo ciclo. O tipo vem de um dicionário de palavras em `ofertas/tipos.py`; produto que não casa com nada não sofre a regra (ex.: livros). Para ensinar tipos novos: `variedade.tipos_extras` no `config.yaml`.

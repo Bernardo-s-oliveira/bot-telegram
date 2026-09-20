@@ -9,7 +9,7 @@ from collections import Counter
 
 from telegram import Bot
 
-from . import db, selecao
+from . import db, mix, selecao
 from .config import config, dentro_do_horario
 from .formatter import preco_br
 from .models import Oferta
@@ -82,8 +82,8 @@ def _tipos_recentes() -> set[str]:
     """Tipos de produto (tipos.py) postados nas últimas `variedade.janela_horas` horas."""
     if config.variedade_janela_horas <= 0:
         return set()
-    titulos = db.titulos_postados_desde(config.variedade_janela_horas)
-    return {t for t in (tipo_do_produto(x) for x in titulos) if t}
+    postados = db.titulos_postados_desde(config.variedade_janela_horas)
+    return {t for t in (tipo_do_produto(titulo, uid) for uid, titulo in postados) if t}
 
 
 def filtrar_detalhado(ofertas: list[Oferta]) -> tuple[list[Oferta], dict[str, int]]:
@@ -116,7 +116,7 @@ def filtrar_detalhado(ofertas: list[Oferta]) -> tuple[list[Oferta], dict[str, in
     recentes = _tipos_recentes()
     if recentes:
         variadas = [o for o in nao_repetidas
-                    if liberadas.get(o.uid) or tipo_do_produto(o.titulo) not in recentes]
+                    if liberadas.get(o.uid) or tipo_do_produto(o.titulo, o.uid) not in recentes]
         if len(variadas) < len(nao_repetidas):
             rejeicoes["tipo postado há pouco"] = len(nao_repetidas) - len(variadas)
         nao_repetidas = variadas
@@ -125,6 +125,16 @@ def filtrar_detalhado(ofertas: list[Oferta]) -> tuple[list[Oferta], dict[str, in
     aprovadas, motivos = selecao.avaliar_todas(nao_repetidas, historicos)
     for motivo, qtd in motivos.items():
         rejeicoes[motivo] = rejeicoes.get(motivo, 0) + qtd
+
+    # categorias com restrição (mix.py): tecnologia com teto de preço, eletrodoméstico só com queda comprovada
+    liberadas_mix = []
+    for o in aprovadas:
+        motivo = mix.motivo_de_exclusao(o)
+        if motivo:
+            rejeicoes[motivo.split(" de R$")[0]] = rejeicoes.get(motivo.split(" de R$")[0], 0) + 1
+        else:
+            liberadas_mix.append(o)
+    aprovadas = liberadas_mix
 
     for o in aprovadas:
         anterior = liberadas.get(o.uid)
@@ -163,26 +173,30 @@ def anotar_preco_mercado(ofertas: list[Oferta], min_pares: int = 2, similaridade
 
 
 def _selecionar(candidatas: list[Oferta], k: int, ja: list[frozenset[str]],
-                por_plataforma: Counter, teto: int, tipos: set[str]) -> list[Oferta]:
-    """Até `k` melhores por score, sem repetir produto (`ja`), sem repetir tipo de produto (`tipos`, que
-    vale também para as outras chamadas do ciclo) e sem deixar uma plataforma passar de `teto` posts —
-    o teto de plataforma só é relaxado se faltar oferta; o de tipo, nunca."""
+                por_plataforma: Counter, teto: int, tipos: set[str],
+                contagem: Counter, alvo: dict[str, float]) -> list[Oferta]:
+    """Até `k` ofertas. A cada vaga leva a de maior score + bônus do mix de categorias (mix.py), que
+    recalcula com o que já foi escolhido no ciclo (`contagem`). Sem repetir produto (`ja`), sem repetir tipo
+    de produto (`tipos`, vale também para as outras chamadas do ciclo) e sem deixar uma plataforma passar de
+    `teto` posts — o teto de plataforma só é relaxado se faltar oferta; o de tipo, nunca."""
     achadas: list[Oferta] = []
     adiadas: list[tuple[Oferta, frozenset[str]]] = []
+    restantes = list(candidatas)
 
     def tomar(o: Oferta, t: frozenset[str]) -> None:
         ja.append(t)
         por_plataforma[o.plataforma] += 1
-        if tipo := tipo_do_produto(o.titulo):
+        if tipo := tipo_do_produto(o.titulo, o.uid):
             tipos.add(tipo)
+        contagem[mix.categoria(o)] += 1
         achadas.append(o)
 
     def tipo_repetido(o: Oferta) -> bool:
-        return tipo_do_produto(o.titulo) in tipos
+        return tipo_do_produto(o.titulo, o.uid) in tipos
 
-    for o in sorted(candidatas, key=lambda o: o.score, reverse=True):
-        if len(achadas) >= k:
-            break
+    while restantes and len(achadas) < k:
+        i = max(range(len(restantes)), key=lambda j: restantes[j].score + mix.bonus(restantes[j], contagem, alvo))
+        o = restantes.pop(i)
         t = _tokens(o.titulo)
         if any(_parecido(t, v) for v in ja) or tipo_repetido(o):
             continue
@@ -198,23 +212,26 @@ def _selecionar(candidatas: list[Oferta], k: int, ja: list[frozenset[str]],
     return achadas
 
 
-def escolher(ofertas: list[Oferta], n: int) -> list[Oferta]:
-    """Até N ofertas: parte da cota vai para os "campeões de venda", o resto para os maiores
-    descontos verificados. Faixa sem candidatas cede a vaga à outra; os posts saem intercalados."""
+def escolher(ofertas: list[Oferta], n: int, contagem_recente: Counter | None = None) -> list[Oferta]:
+    """Até N ofertas: parte da cota vai para os "campeões de venda", o resto para as quedas de preço
+    comprovadas. Faixa sem candidatas cede a vaga à outra; os posts saem intercalados. `contagem_recente`
+    (posts por categoria nos últimos posts) alimenta o mix de categorias; não é modificada."""
+    contagem = Counter(contagem_recente or {})
+    alvo = mix.metas()
     ja: list[frozenset[str]] = []
     por_plataforma: Counter = Counter()
     tipos: set[str] = set()
     teto = max(1, math.ceil(n * 0.6))
 
     campeoes = _selecionar([o for o in ofertas if o.faixa == "campeao"],
-                           round(n * config.campeoes_pct_posts / 100), ja, por_plataforma, teto, tipos)
+                           round(n * config.campeoes_pct_posts / 100), ja, por_plataforma, teto, tipos, contagem, alvo)
     descontos = _selecionar([o for o in ofertas if o.faixa == "desconto"],
-                            n - len(campeoes), ja, por_plataforma, teto, tipos)
+                            n - len(campeoes), ja, por_plataforma, teto, tipos, contagem, alvo)
     faltam = n - len(campeoes) - len(descontos)
     if faltam > 0:  # sobrou vaga: qualquer faixa pode preenchê-la
         usadas = {id(o) for o in campeoes + descontos}
         descontos += _selecionar([o for o in ofertas if id(o) not in usadas],
-                                 faltam, ja, por_plataforma, teto, tipos)
+                                 faltam, ja, por_plataforma, teto, tipos, contagem, alvo)
 
     intercaladas: list[Oferta] = []
     for par in itertools.zip_longest(campeoes, descontos):
@@ -229,7 +246,8 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True) -> 
     reprovar, sai da disputa e a vaga é refeita com o próximo melhor. Retorna (escolhidas, rejeições)."""
     anotar_preco_mercado(brutas)
     boas, rejeicoes = filtrar_detalhado(brutas)
-    escolhidas = escolher(boas, n)
+    recentes = mix.contagem_recente() if config.mix_ativo else Counter()
+    escolhidas = escolher(boas, n, recentes)
     if not (checar_vendedores and (config.verificar_vendedor or config.buscar_cupons)):
         return escolhidas, rejeicoes
 
@@ -254,7 +272,7 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True) -> 
         if reprovadas:
             fora = {id(o) for o in reprovadas}
             boas = [o for o in boas if id(o) not in fora]
-        escolhidas = escolher(boas, n)
+        escolhidas = escolher(boas, n, recentes)
         if not reprovadas:
             break
     # esgotou as rodadas com candidatos ainda sem checagem: os suspeitos não passam sem ela

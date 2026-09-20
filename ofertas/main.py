@@ -134,7 +134,7 @@ def cmd_testar(args):
 
 def cmd_simular(_):
     """Roda coleta + seleção como um ciclo real, mas só mostra o resultado (não posta nada)."""
-    from . import db, pipeline
+    from . import db, mix, pipeline
     from .config import config
     ofertas = pipeline.coletar()
     db.registrar_precos(ofertas)  # alimenta o histórico de preços (não posta nem marca como postada)
@@ -143,7 +143,7 @@ def cmd_simular(_):
     if rejeicoes:
         print("Rejeitadas: " + ", ".join(f"{m}: {q}" for m, q in sorted(rejeicoes.items(), key=lambda x: -x[1])))
     for o in escolhidas:
-        print(f"\n[{o.faixa} · score {o.score:.2f}] {o.plataforma} — {o.titulo[:70]}")
+        print(f"\n[{o.faixa} · score {o.score:.2f} · {mix.categoria(o)}] {o.plataforma} — {o.titulo[:70]}")
         queda = f"queda comprovada -{o.desconto}%" if o.desconto_verificado else "sem queda comprovada"
         print(f"   R$ {o.preco} ({queda})"
               f" · nota {o.nota} · vendas {o.vendas}{'/mês' if o.vendas_mensal else ''}")

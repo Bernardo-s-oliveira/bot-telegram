@@ -33,6 +33,29 @@ divulgacao:
     Garantiu sua compra com desconto?
     Use #cacador_promo e compartilhe nas redes!
 
+# Mix de categorias: fatia-alvo dos posts por categoria (soma 100). O bot olha os últimos `janela_posts`
+# posts, vê quais categorias estão abaixo da meta e dá um bônus às ofertas delas (e desconta as que já
+# passaram). É uma preferência, não uma cota rígida: sem oferta boa numa categoria, a vaga vai para outra —
+# por isso a composição real depende do que as fontes trazem. O tipo de cada produto vem de ofertas/tipos.py.
+mix:
+  ativo: true
+  janela_posts: 40             # quantos posts recentes entram na conta
+  forca: 1.5                   # quanto a meta pesa contra o score (0 = ignora o mix; maior = segue a meta à risca)
+  metas:
+    casa_e_cozinha: 22         # muitos itens baratos e fáceis de comparar
+    moda: 20
+    beleza: 15                 # compra recorrente
+    limpeza_e_higiene: 10      # papel higiênico, amaciante, sabão, escova de dente…
+    tecnologia: 10             # só acessórios, fones e casa inteligente (veja o teto abaixo)
+    esporte: 6                 # creatina e suplementos
+    saude: 5                   # medidores, massageadores, vitaminas
+    brinquedos_e_bebes: 5      # fraldas e itens de bebê
+    eletrodomesticos: 5        # só com queda de preço comprovada (veja abaixo)
+    outros: 2                  # celulares, games, pet, automotivo, livros, TV, notebook…
+  tecnologia_preco_maximo: 600 # tecnologia acima disso não é postada (0 = sem teto)
+  eletrodomesticos_exige_queda_real: true  # tíquete alto: o risco de "de" inflado é maior
+  sem_categoria: 0             # fatia (%) de produtos que o dicionário não reconhece; 0 = sem fatia própria
+
 # Como o bot escolhe o que postar (veja ofertas/selecao.py). Toda oferta passa pelos portões
 # de qualidade e cai em uma de duas faixas, que se alternam nos posts de cada ciclo:
 #   • campeões: muitas vendas + boa nota + preço em conta e não acima do normal (não exige desconto);

@@ -152,9 +152,8 @@ def avaliar_vendedor(o: Oferta) -> str | None:
     if o.suspeita and not confiavel:
         return "desconto suspeito (vendedor sem selo MercadoLíder Gold/Platinum nem loja oficial)"
 
-    if o.loja_oficial:
-        o.selos.append("🛡️ Loja oficial")
-    elif o.vendedor_status in ("gold", "platinum"):
+    # "Loja oficial" vai na linha de nota e vendas (formatter); loja oficial não repete o selo de MercadoLíder
+    if not o.loja_oficial and o.vendedor_status in ("gold", "platinum"):
         o.selos.append(f"🏅 Vendedor MercadoLíder {o.vendedor_status.capitalize()}")
     return None
 

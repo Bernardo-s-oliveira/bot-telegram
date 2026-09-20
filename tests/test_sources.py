@@ -73,6 +73,6 @@ def test_post_mostra_prova_social_e_selos():
     o = Oferta("amazon", "B1", "Fone <JBL>", "x", preco=90.0, preco_original=120.0, nota=4.8,
                vendas=2_000, vendas_mensal=True, selos=["✅ 25% abaixo do preço médio dos últimos 14 dias"])
     texto = montar_caption(o)
-    assert "⭐ 4,8" in texto and "🏆 +2 mil compras no último mês" in texto
+    assert "⭐ 4,8 · +2 mil compras no último mês" in texto
     assert "25% abaixo do preço médio" in texto
     assert "&lt;JBL&gt;" in texto   # HTML do título é escapado

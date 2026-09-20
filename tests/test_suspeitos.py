@@ -120,9 +120,10 @@ def test_vendedor_confiavel_ganha_selo():
     o = vendedor(status="platinum")
     assert selecao.avaliar_vendedor(o) is None
     assert any("MercadoLíder Platinum" in s for s in o.selos)
+    # loja oficial: aparece na linha de nota e vendas (formatter), sem selo próprio nem repetir o MercadoLíder
     o = vendedor(oficial=True)
     assert selecao.avaliar_vendedor(o) is None
-    assert any("Loja oficial" in s for s in o.selos)
+    assert o.selos == [] and "Loja oficial" in montar_caption(o)
 
 
 # ── post: percentual só quando o histórico comprova ──────────────────
