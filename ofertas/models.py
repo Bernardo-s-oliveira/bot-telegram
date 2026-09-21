@@ -32,6 +32,11 @@ class Oferta:
     # que o cupom vale para 1 unidade (não há código: o comprador ativa na página)
     cupom: str | None = None
 
+    # Pedido de cliente (pedidos.yaml) que originou esta oferta; ganha prioridade no canal
+    pedido: str | None = None
+    # Anúncio de importação/comércio internacional (ML, lido na página do produto); None = não conferido
+    internacional: bool | None = None
+
     # Referência de preço de anúncios parecidos coletados no mesmo ciclo (pipeline.anotar_preco_mercado)
     preco_mercado: float | None = None
 

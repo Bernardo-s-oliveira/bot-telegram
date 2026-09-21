@@ -78,7 +78,9 @@ def avaliar(o: Oferta, h: Historico | None, queda_minima: int | None = None, so_
         return "sem preço"
 
     if o.nota is None:
-        if config.exigir_avaliacao:
+        # Pedido de cliente no ML: anúncio de catálogo quase nunca mostra nota no card; a confiança vem do vendedor,
+        # conferido na página (avaliar_vendedor exige). Na Amazon não dá para conferir o vendedor: a nota é obrigatória.
+        if config.exigir_avaliacao and not (o.pedido and o.plataforma == "mercadolivre"):
             return "sem avaliação"
     elif o.nota < config.nota_minima:
         return f"nota baixa ({o.nota:.1f})"
@@ -120,20 +122,26 @@ def avaliar(o: Oferta, h: Historico | None, queda_minima: int | None = None, so_
                and o.nota is not None and o.nota >= config.campeoes_nota_minima)
     limite_queda = config.desconto_minimo if queda_minima is None else queda_minima
     desconto = (queda or 0) >= limite_queda and prova >= config.prova_social_minima
-    if not (campeao or desconto):
+    if not (campeao or desconto or o.pedido):    # pedido de cliente: a faixa de preço do pedido já é o critério
         return "critérios não atingidos"
 
     componentes = {
         "pop": _pop(vendas), "qual": _qual(o, vendas), "desc": _clamp((queda or 0) / _DESCONTO_TETO),
         "hist": _hist(o, h, suficiente), "conta": _conta(o.preco),
     }
-    scores = {f: sum(PESOS[f][k] * v for k, v in componentes.items())
-              for f, ok in (("campeao", campeao), ("desconto", desconto)) if ok}
-    o.faixa = max(scores, key=scores.get)
-    o.score = round(scores[o.faixa], 4)
+    if o.pedido:   # o pipeline põe os pedidos na frente das demais ofertas (pipeline.escolher_pedidos)
+        o.faixa = "pedido"
+        o.score = round(sum(PESOS["campeao"][k] * v for k, v in componentes.items()), 4)
+    else:
+        scores = {f: sum(PESOS[f][k] * v for k, v in componentes.items())
+                  for f, ok in (("campeao", campeao), ("desconto", desconto)) if ok}
+        o.faixa = max(scores, key=scores.get)
+        o.score = round(scores[o.faixa], 4)
 
     # O post nunca mostra o "De"/percentual da loja: só uma queda comprovada, contra o preço médio do histórico.
     o.selos = []
+    if o.pedido and config.pedidos_selo:
+        o.selos.append(config.pedidos_selo)
     o.desconto_verificado = False
     # a queda que fez a oferta passar tem de aparecer no post: o limite de exibição acompanha o do destino
     # (grupo Apple: 5%), mas nunca passa de 10%
@@ -147,11 +155,18 @@ def avaliar(o: Oferta, h: Historico | None, queda_minima: int | None = None, so_
     return None
 
 
+def avaliar_internacional(o: Oferta) -> str | None:
+    """Motivo da rejeição se o anúncio é de importação/comércio internacional (prazo longo, impostos, troca
+    difícil) e `selecao.evitar_internacional` está ligado. Independe de `verificar_vendedor`."""
+    return "produto internacional" if (o.internacional and config.evitar_internacional) else None
+
+
 def avaliar_vendedor(o: Oferta) -> str | None:
     """Confere a reputação do vendedor (já lida da página do produto). Retorna o motivo da
     rejeição ou None. Sem dados do vendedor: só reprova oferta de desconto suspeito."""
     if o.vendedor_nivel is None:
-        return "vendedor não verificado" if o.suspeita else None
+        # sem dados do vendedor: só barra desconto suspeito... e pedido de cliente, que não tem nota para se apoiar
+        return "vendedor não verificado" if (o.suspeita or o.pedido) else None
     if o.vendedor_nivel < config.vendedor_nivel_minimo:
         return f"vendedor com reputação baixa (nível {o.vendedor_nivel}/5)"
     confiavel = o.loja_oficial or o.vendedor_status in ("gold", "platinum")

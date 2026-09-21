@@ -9,7 +9,7 @@ from collections import Counter
 
 from telegram import Bot
 
-from . import db, destinos, mix, selecao
+from . import db, destinos, mix, pedidos, selecao
 from .config import config, dentro_do_horario
 from .formatter import preco_br
 from .models import Oferta
@@ -70,6 +70,11 @@ def coletar() -> list[Oferta]:
         apple = [o for o in achadas if destinos.e_apple(o) and o.uid not in ja]
         todas += list({o.uid: o for o in apple}.values())
         log.info("Busca Apple: %d produtos Apple", len(apple))
+
+    # Pedidos de clientes (pedidos.yaml): busca cada um e marca os anúncios que estão na faixa de preço
+    if config.pedidos_ativo:
+        for linha in pedidos.coletar(todas):
+            log.info("%s", linha)
 
     return todas
 
@@ -139,7 +144,7 @@ def filtrar_detalhado(ofertas: list[Oferta], destino: destinos.Destino | None = 
     recentes = _tipos_recentes(destino.nome)
     if recentes:
         variadas = [o for o in nao_repetidas
-                    if liberadas.get(o.uid) or tipo_do_produto(o.titulo, o.uid) not in recentes]
+                    if liberadas.get(o.uid) or o.pedido or tipo_do_produto(o.titulo, o.uid) not in recentes]
         if len(variadas) < len(nao_repetidas):
             rejeicoes["tipo postado há pouco"] = len(nao_repetidas) - len(variadas)
         nao_repetidas = variadas
@@ -152,7 +157,7 @@ def filtrar_detalhado(ofertas: list[Oferta], destino: destinos.Destino | None = 
     # categorias com restrição (mix.py): tecnologia com teto de preço, eletrodoméstico só com queda comprovada
     liberadas_mix = []
     for o in aprovadas:
-        motivo = mix.motivo_de_exclusao(o) if destino.usar_mix else None
+        motivo = mix.motivo_de_exclusao(o) if (destino.usar_mix and not o.pedido) else None
         if motivo:
             rejeicoes[motivo.split(" de R$")[0]] = rejeicoes.get(motivo.split(" de R$")[0], 0) + 1
         else:
@@ -263,6 +268,33 @@ def escolher(ofertas: list[Oferta], n: int, contagem_recente: Counter | None = N
     return intercaladas
 
 
+def escolher_pedidos(ofertas: list[Oferta], limite: int) -> list[Oferta]:
+    """Pedidos de clientes que passaram nos portões: no máximo UM anúncio por pedido (o mais barato) e `limite`
+    no total, sem repetir produto parecido. Eles ganham a vaga antes de qualquer oferta normal."""
+    melhores: dict[str, Oferta] = {}
+    for o in sorted((o for o in ofertas if o.pedido), key=lambda o: (o.preco, -(o.nota or 0))):
+        melhores.setdefault(o.pedido, o)
+    escolhidos: list[Oferta] = []
+    tokens: list[frozenset[str]] = []
+    for o in sorted(melhores.values(), key=lambda o: (-o.score, o.preco)):
+        t = _tokens(o.titulo)
+        if len(escolhidos) >= limite:
+            break
+        if not any(_parecido(t, v) for v in tokens):
+            escolhidos.append(o)
+            tokens.append(t)
+    return escolhidos
+
+
+def _montar(boas: list[Oferta], n: int, recentes: Counter, destino: destinos.Destino) -> list[Oferta]:
+    """Os pedidos de clientes primeiro; o resto das vagas vai para as ofertas normais (mix, variedade, faixas).
+    Pedido que não coube neste ciclo espera o próximo (não entra como oferta normal)."""
+    fixos = escolher_pedidos(boas, min(config.pedidos_max_por_ciclo, n))
+    tokens = [_tokens(o.titulo) for o in fixos]
+    normais = [o for o in boas if not o.pedido and not any(_parecido(_tokens(o.titulo), t) for t in tokens)]
+    return fixos + escolher(normais, max(0, n - len(fixos)), recentes, destino.usar_mix)
+
+
 def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True,
                destino: destinos.Destino | None = None) -> tuple[list[Oferta], dict[str, int]]:
     """Tudo entre a coleta e o post: filtros, qualidade, escolha e checagem de vendedor.
@@ -273,8 +305,10 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True,
     anotar_preco_mercado(brutas)
     boas, rejeicoes = filtrar_detalhado(brutas, destino)
     recentes = mix.contagem_recente(destino.nome) if (config.mix_ativo and destino.usar_mix) else Counter()
-    escolhidas = escolher(boas, n, recentes, destino.usar_mix)
-    if not (checar_vendedores and (config.verificar_vendedor or config.buscar_cupons)):
+    escolhidas = _montar(boas, n, recentes, destino)
+    # A página do produto (ML) é lida para: vendedor, cupom, produto internacional e, sempre, para os pedidos.
+    if not (checar_vendedores and (config.verificar_vendedor or config.buscar_cupons or config.evitar_internacional
+                                   or any(o.pedido for o in escolhidas))):
         return escolhidas, rejeicoes
 
     for _ in range(4):
@@ -289,7 +323,9 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True,
                 o.vendedor_checado = True   # sem dados: só desconto suspeito é barrado
         reprovadas = []
         for o in pendentes:
-            motivo = selecao.avaliar_vendedor(o) if config.verificar_vendedor else None
+            motivo = selecao.avaliar_internacional(o)
+            if motivo is None and (config.verificar_vendedor or o.pedido):   # pedido sempre confere o vendedor
+                motivo = selecao.avaliar_vendedor(o)
             if motivo:
                 log.info("Vendedor reprovado — %s: %s", o.titulo[:50], motivo)
                 chave = motivo.split(" (")[0]
@@ -298,13 +334,15 @@ def selecionar(brutas: list[Oferta], n: int, checar_vendedores: bool = True,
         if reprovadas:
             fora = {id(o) for o in reprovadas}
             boas = [o for o in boas if id(o) not in fora]
-        escolhidas = escolher(boas, n, recentes, destino.usar_mix)
+        escolhidas = _montar(boas, n, recentes, destino)
         if not reprovadas:
             break
     # esgotou as rodadas com candidatos ainda sem checagem: os suspeitos não passam sem ela
     if config.verificar_vendedor:
         escolhidas = [o for o in escolhidas
                       if not (o.suspeita and o.plataforma == "mercadolivre" and not o.vendedor_checado)]
+    # pedido de cliente no ML só sai com o vendedor conferido (é o que o substitui no lugar da nota)
+    escolhidas = [o for o in escolhidas if not (o.pedido and o.plataforma == "mercadolivre" and not o.vendedor_checado)]
     return escolhidas, rejeicoes
 
 

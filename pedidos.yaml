@@ -1,0 +1,59 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+#  PEDIDOS DE CLIENTES
+#
+#  Coloque aqui os produtos que os clientes estão pedindo. A cada ciclo o bot procura cada pedido (Mercado
+#  Livre e Amazon) e, se achar um anúncio DENTRO DA FAIXA DE PREÇO, com vendedor confiável, ele:
+#    • passa na frente das ofertas normais e é postado no canal (até `pedidos.max_por_ciclo` por ciclo);
+#    • ignora o mix de categorias e a regra de "não repetir o mesmo tipo de produto".
+#  Anúncio FORA da faixa não é postado: o bot só avisa no log o menor preço que achou.
+#  Produto IMPORTADO (comércio internacional) é sempre ignorado. Usado, seminovo e recondicionado também.
+#
+#  Este arquivo é relido a cada ciclo: pode editar com o bot rodando, sem reiniciar.
+#  Para ver o que ele acha agora, sem postar nada:   uv run python -m ofertas pedidos
+#
+#  COMO ESCREVER UM PEDIDO
+#    nome          como o pedido aparece nos relatórios
+#    buscas        o que o bot pesquisa (uma ou mais frases, como você digitaria na busca da loja)
+#    preco         [mínimo, máximo] em R$. O mínimo evita anúncio "barato demais": golpe, acessório, peça errada
+#    deve_ter      palavras que TODAS precisam estar no título do anúncio
+#    qualquer_de   (opcional) pelo menos UMA destas precisa estar no título
+#    nao_deve_ter  palavras que NÃO podem estar no título
+#    ativo         (opcional) false = PAUSA este pedido sem apagá-lo: o bot não procura nem prioriza. Para voltar,
+#                  troque por true ou apague a linha. (Também dá para comentar o pedido inteiro com # na frente.)
+#
+#  REGRAS DAS PALAVRAS
+#    • Sem acento e sem diferença de maiúscula: "placa mae" acha "Placa Mãe".
+#    • É palavra inteira: "5600" NÃO acha "5600X" nem "5600G" (são outros processadores).
+#    • Terminando em * aceita qualquer continuação: "a520*" acha "A520", "A520M" e "A520M-K".
+#    • "16 GB", "16gb" e "16GB" são a mesma coisa; "2 x 8" e "2x8" também.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+pedidos:
+
+  - nome: Ryzen 5 5600
+    buscas:
+      - ryzen 5 5600
+    preco: [500, 600]
+    ativo: false                                              # pausado: troque por true para voltar
+    deve_ter: [ryzen, "5600"]
+    nao_deve_ter: [kit, combo, upgrade, placa, notebook]     # kit com placa/memória não é só o processador
+
+  - nome: Placa-mãe A520 ou B550 (AM4)
+    buscas:
+      - placa mae a520
+      - placa mae b550
+    preco: [300, 600]
+    ativo: false                                              # pausado: troque por true para voltar
+    deve_ter: [placa]
+    qualquer_de: ["a520*", "b550*"]
+    nao_deve_ter: [kit, combo, upgrade, processador, notebook]
+
+  - nome: Memória RAM 16GB DDR4 (desktop)
+    buscas:
+      - memoria ram ddr4 16gb
+      - memoria ddr4 16gb 3200
+    preco: [500, 1000]
+    ativo: false                                              # pausado: troque por true para voltar
+    deve_ter: [ddr4]
+    qualquer_de: ["16gb", "2x8gb"]                            # um pente de 16 GB ou dois de 8 GB
+    nao_deve_ter: [notebook, laptop, sodimm, so-dimm, servidor, ecc, 32gb, 64gb, 2x16gb, 4x8gb, 2133mhz]

@@ -33,6 +33,15 @@ divulgacao:
     Garantiu sua compra com desconto?
     Use #cacador_promo e compartilhe nas redes!
 
+# Pedidos de clientes: o arquivo pedidos.yaml lista produtos que clientes pediram, cada um com faixa de preço.
+# O bot procura cada pedido a cada ciclo e, achando um anúncio na faixa e de vendedor confiável, posta com PRIORIDADE
+# (na frente das ofertas normais, sem o mix de categorias nem a regra de variedade). Veja o pedidos.yaml.
+pedidos:
+  ativo: true
+  arquivo: pedidos.yaml
+  max_por_ciclo: 2            # quantos pedidos, no máximo, entram por ciclo (um anúncio por pedido)
+  selo: "📌 Pedido de cliente"  # linha que aparece no post; "" = sem selo
+
 # Grupo Apple: produto Apple vai para um grupo próprio (TELEGRAM_CHAT_ID_APPLE no .env); o resto, para o canal
 # geral. Sem o ID do grupo no .env, nada muda e tudo continua indo para o canal. O grupo Apple posta só QUEDAS DE
 # PREÇO COMPROVADAS (promoção grande em Apple é rara, por isso o limite é bem menor que o do canal geral) e não
@@ -101,6 +110,7 @@ selecao:
   preco_minimo_vs_mercado_pct: 50  # descarta preço abaixo de X% do de anúncios iguais coletados no mesmo ciclo
   verificar_vendedor: true     # ML: abre a página do produto (navegador logado) e confere a reputação do vendedor
   vendedor_nivel_minimo: 4     # reputação mínima do vendedor no ML (1 vermelho … 5 verde)
+  evitar_internacional: true   # ML: descarta anúncio de importação (comércio internacional): prazo longo, impostos, troca difícil
   buscar_cupons: true          # ML: lê os cupons na página do produto e avisa no post só os que valem para 1 unidade
   campeoes:
     vendas_minimas: 1000       # vendas mínimas (ML: faixa "+1000"; Amazon: mês × fator acima)

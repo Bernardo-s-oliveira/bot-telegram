@@ -111,7 +111,7 @@ O objetivo não é postar o maior desconto, e sim a **melhor compra**. O descont
 **Cupons (Mercado Livre):** na mesma visita à página do produto, o bot lê os cupons e adiciona ao post uma linha como *"🎟 R$ 106,32 com cupom (ative na página do produto)"*. Só anuncia cupom que vale para **1 unidade**: o "20% OFF com Cupom" que aparece na listagem muitas vezes exige compra mínima acima do preço do item, ou só vale "por seguir a loja" — esses são ignorados. Os cupons que a página lista se ativam com um clique, sem código. Desligue com `buscar_cupons: false`. Amazon e Shopee ficam sem cupom (não há dado confiável nas páginas que o bot lê).
 
 **Mix de categorias:** cada categoria tem uma fatia-alvo dos posts (`mix.metas` no `config.yaml`; padrão: Casa e Cozinha 22%, Moda 20%, Beleza 15%, Limpeza e Higiene 10%, Tecnologia 10%, Esporte 6%, Saúde 5%, Brinquedos e Bebês 5%, Eletrodomésticos 5%, outros 2%). O bot olha os últimos 40 posts e dá um bônus às ofertas das categorias abaixo da meta — é uma **preferência, não uma cota rígida**: sem oferta boa numa categoria, a vaga vai para outra, então a composição real depende do que as lojas trazem. Duas categorias têm regra própria:
-- **Tecnologia** só até `tecnologia_preco_maximo` (R$ 300) e só acessórios, fones e casa inteligente; TV, notebook, monitor e tablet contam como "outros";
+- **Tecnologia** só até `tecnologia_preco_maximo` (R$ 600 no `config.yaml`) e só acessórios, fones e casa inteligente; TV, notebook, monitor e tablet contam como "outros";
 - **Eletrodomésticos** só com **queda de preço comprovada** (tíquete alto, risco maior de "de" inflado) — por isso só aparecem depois de ~1 dia de histórico.
 
 O tipo de cada produto vem de um dicionário de palavras (`ofertas/tipos.py`); livros da Amazon são reconhecidos pelo código do produto (ISBN). `uv run python -m ofertas simular` mostra a categoria de cada oferta escolhida.
@@ -150,6 +150,34 @@ Sem o ID, nada muda: tudo continua indo para o canal geral.
 
 `uv run python -m ofertas simular` mostra as escolhas dos dois destinos. Links que você cola no privado do bot também vão para o grupo certo (produto Apple → grupo Apple).
 
+## 📌 Pedidos de clientes — `pedidos.yaml`
+
+Quando clientes pedem um produto, anote-o em **`pedidos.yaml`** (na pasta do projeto). A cada ciclo o bot procura cada pedido no Mercado Livre e na Amazon e, se achar um anúncio **dentro da faixa de preço** que você definiu, ele **passa na frente** das ofertas normais e sai no canal com o selo `📌 Pedido de cliente`.
+
+```yaml
+pedidos:
+  - nome: Ryzen 5 5600
+    buscas: [ryzen 5 5600]                  # o que o bot pesquisa na loja
+    preco: [500, 600]                       # mínimo e máximo, em R$
+    deve_ter: [ryzen, "5600"]               # TODAS têm de estar no título
+    nao_deve_ter: [kit, combo, upgrade, placa, notebook]
+```
+
+O arquivo já vem com os três pedidos atuais (Ryzen 5 5600 de R$ 500 a 600, placa-mãe A520/B550 de R$ 300 a 600, memória DDR4 16 GB de R$ 500 a 1.000). **É relido a cada ciclo**: edite com o bot rodando. O topo do arquivo explica as regras de palavras (sem acento nem maiúscula; palavra inteira — `5600` não acha `5600X`; `a520*` acha `A520M-K`).
+
+- **Só sai o que está na faixa.** Anúncio mais caro não é postado: o bot só registra no log o menor preço achado ("aguardando o preço cair"). O preço mínimo evita anúncio barato demais (golpe, peça errada).
+- **Sem importado.** Anúncio de comércio internacional do Mercado Livre é descartado (`selecao.evitar_internacional`, ligado por padrão — vale para **todas** as ofertas do ML, não só para os pedidos). Usado, seminovo e recondicionado também são ignorados nos pedidos.
+- **Vendedor conferido.** No ML o bot abre a página do anúncio e só posta se o vendedor tiver reputação suficiente (nível ≥ 4). Na Amazon exige nota ≥ 4,3.
+- **Não passa pelo mix nem pela variedade**, e não precisa de histórico de preço nem de vendas. Ainda vale a checagem de "preço muito abaixo dos anúncios iguais".
+- **Pausar um pedido** sem apagá-lo: adicione `ativo: false` nele. O bot para de procurar e de priorizar aquele item (o relatório mostra "pausado"); para voltar, troque por `true` ou apague a linha. Um anúncio dele ainda pode sair como oferta comum, se passar nos critérios normais.
+- No máximo `pedidos.max_por_ciclo` (2) pedidos por ciclo, um anúncio por pedido (o mais barato); o resto das vagas segue com as ofertas normais.
+
+Para ver o que ele acha agora, sem postar nada:
+```powershell
+uv run python -m ofertas pedidos
+```
+Mostra, para cada pedido, quantos anúncios combinam, o menor preço e, para os que estão na faixa, se o vendedor e a origem passaram (✅/❌). Liga/desliga em `pedidos.ativo` no `config.yaml`.
+
 ## Ajustes — `config.yaml`
 Intervalo entre ciclos, quantos posts por vez, desconto mínimo, horário ativo e o **escopo do canal**. Por padrão o bot pega **ofertas de todas as categorias**. Para focar num nicho (tecnologia, moda, casa, pet…), preencha as listas de `categorias`/`departamentos`/`buscas` no `config.yaml` — há exemplos comentados dentro do arquivo. Edite e **reinicie o bot** (ele só lê a configuração ao iniciar).
 
@@ -186,6 +214,7 @@ ofertas/
 ├── bot_interativo.py  # bot do Telegram (conversor + agendador)
 ├── pipeline.py        # coleta → filtros → escolhe → gera links → posta
 ├── selecao.py         # qualidade, validação do desconto, faixas e score
+├── pedidos.py         # pedidos de clientes (pedidos.yaml): busca, faixa de preço, prioridade
 ├── formatter.py       # visual do post
 ├── db.py              # banco: anti-repetição + histórico de preços
 ├── config.py          # lê .env + config.yaml

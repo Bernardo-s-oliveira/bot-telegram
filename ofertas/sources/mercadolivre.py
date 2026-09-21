@@ -432,6 +432,17 @@ def texto_cupom(o: Oferta, cupons: list[dict]) -> str | None:
     return melhor[1] if melhor else None
 
 
+# Produto de importação (comércio internacional): a lista "tags" do anúncio traz "cbt_item". Verificado em 2026-09-20:
+# presente nos 3 Ryzen importados testados (Saikang Store, Loja Alpha, CLUB ENVIOS Miami) e ausente em 13 páginas
+# de anúncios nacionais. O texto "internacional" NÃO serve: aparece também nas páginas nacionais (menu do site).
+_RE_CBT = re.compile(r'"tags":\[[^\]]*"cbt_item"')
+
+
+def parse_internacional(html: str) -> bool:
+    """True se a página do produto é de um anúncio de importação (comércio internacional)."""
+    return bool(_RE_CBT.search(html))
+
+
 def verificar_vendedores(ofertas: list[Oferta]) -> None:
     """Abre a página de cada produto (mesmo navegador logado do Linkbuilder) e preenche os campos
     de vendedor e o cupom. Falha em uma página não interrompe as outras (ela só fica sem dados)."""
@@ -457,6 +468,7 @@ def verificar_vendedores(ofertas: list[Oferta]) -> None:
                     html = page.content()
                     dados = parse_vendedor(html)
                     cupom = texto_cupom(o, parse_cupons(html)) if config.buscar_cupons else None
+                    o.internacional = parse_internacional(html)
                 except RuntimeError:
                     raise
                 except Exception as e:

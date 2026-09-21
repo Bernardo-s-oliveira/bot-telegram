@@ -27,7 +27,7 @@ def config_padrao(monkeypatch):
         campeoes_vendas_minimas=1000, campeoes_nota_minima=4.5,
         campeoes_pct_posts=50, desconto_minimo=25, preco_minimo=0, preco_maximo=0,
         desconto_suspeito=60, suspeita_vendas_minimas=5000,
-        preco_minimo_vs_mercado_pct=50, verificar_vendedor=True, vendedor_nivel_minimo=4, buscar_cupons=True,
+        preco_minimo_vs_mercado_pct=50, verificar_vendedor=True, vendedor_nivel_minimo=4, buscar_cupons=True, evitar_internacional=True, pedidos_ativo=True, pedidos_arquivo="nao_existe_nos_testes.yaml", pedidos_max_por_ciclo=2, pedidos_selo="📌 Pedido de cliente",
         variedade_janela_horas=4, apple_ativo=True, apple_max_posts=3, apple_queda_minima=5, apple_so_queda=True, apple_palavras_bloqueadas=["recondicionado", "seminovo", "usado", "vitrine", "open box", "caixa aberta", "swap"], chat_id_apple="", mix_ativo=False, mix_janela_posts=40, mix_forca=1.5, mix_tecnologia_preco_max=300.0, mix_eletro_exige_queda=True, divulgacao_ativa=True, divulgacao_a_cada_horas=24, divulgacao_fixar=False,
         divulgacao_texto="Divulgação https://t.me/cacador_promo #cacador_promo", chat_id="@canal",
         palavras_bloqueadas=[], nao_repetir_dias=7,

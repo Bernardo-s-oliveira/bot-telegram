@@ -71,6 +71,7 @@ class Config:
         self.preco_minimo_vs_mercado_pct: int = int(sel.get("preco_minimo_vs_mercado_pct", 50))
         self.verificar_vendedor: bool = bool(sel.get("verificar_vendedor", True))
         self.buscar_cupons: bool = bool(sel.get("buscar_cupons", True))
+        self.evitar_internacional: bool = bool(sel.get("evitar_internacional", True))
         self.vendedor_nivel_minimo: int = int(sel.get("vendedor_nivel_minimo", 4))
         self.campeoes_vendas_minimas: int = int(camp.get("vendas_minimas", 1000))
         self.campeoes_nota_minima: float = float(camp.get("nota_minima", 4.5))
@@ -84,6 +85,13 @@ class Config:
             adicionar_extras(var.get("tipos_extras") or {})
         except Exception:
             pass
+
+        # Pedidos de clientes (ofertas/pedidos.py e pedidos.yaml): produtos que clientes pediram, com prioridade
+        ped = y.get("pedidos") or {}
+        self.pedidos_ativo: bool = bool(ped.get("ativo", True))
+        self.pedidos_arquivo: str = str(ped.get("arquivo") or "pedidos.yaml")
+        self.pedidos_max_por_ciclo: int = int(ped.get("max_por_ciclo", 2))
+        self.pedidos_selo: str = str(ped.get("selo") if ped.get("selo") is not None else "📌 Pedido de cliente").strip()
 
         # Grupo Apple (ofertas/destinos.py): produtos Apple vão para o grupo próprio, o resto para o canal geral.
         # Só liga com TELEGRAM_CHAT_ID_APPLE no .env; sem ele, tudo continua indo para o canal geral.

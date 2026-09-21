@@ -135,6 +135,38 @@ def cmd_testar(args):
     print(f"\nTotal: {len(ofertas)} ofertas")
 
 
+def cmd_pedidos(_):
+    """Procura os pedidos de clientes (pedidos.yaml) e mostra o que achou, sem postar nada."""
+    from . import pedidos, selecao
+    from .formatter import preco_br
+    from .sources import mercadolivre
+    todas: list = []
+    print("Procurando os pedidos (pode levar cerca de 1 minuto)...\n")
+    relatorio = pedidos.coletar(todas)
+    if not relatorio:
+        raise SystemExit("Nenhum pedido em pedidos.yaml (ou o recurso está desligado em pedidos.ativo).")
+    for linha in relatorio:
+        print("•", linha)
+    candidatas = [o for o in todas if o.pedido]
+    no_ml = [o for o in candidatas if o.plataforma == "mercadolivre"]
+    if no_ml:
+        print("\nConferindo vendedor e origem dos anúncios na faixa (Mercado Livre)...")
+        try:
+            mercadolivre.verificar_vendedores(no_ml)
+        except Exception as e:
+            print(f"  não consegui conferir as páginas: {e}")
+    for o in sorted(candidatas, key=lambda o: (o.pedido, o.preco)):
+        motivo = selecao.avaliar_internacional(o) or (selecao.avaliar_vendedor(o) if o.vendedor_checado else None)
+        if motivo:
+            situacao = f"❌ {motivo}"
+        elif o.vendedor_checado or o.plataforma != "mercadolivre":
+            situacao = "✅ ok"
+        else:
+            situacao = "⚠️ vendedor não conferido"
+        print(f"\n[{o.pedido}] {preco_br(o.preco)} — {situacao}")
+        print(f"   {o.titulo[:78]}\n   vendedor: {o.vendedor or '?'} · nota {o.nota} · {o.url_produto}")
+
+
 def cmd_simular(_):
     """Roda coleta + seleção como um ciclo real, mas só mostra o resultado (não posta nada)."""
     from . import db, destinos, mix, pipeline
@@ -189,6 +221,7 @@ def main():
     pt.set_defaults(fn=cmd_testar)
 
     sub.add_parser("simular", help="mostra o que o bot postaria agora, sem postar nada").set_defaults(fn=cmd_simular)
+    sub.add_parser("pedidos", help="procura os pedidos de clientes (pedidos.yaml) e mostra o que achou, sem postar").set_defaults(fn=cmd_pedidos)
 
     args = p.parse_args()
     args.fn(args)
