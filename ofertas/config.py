@@ -97,7 +97,7 @@ class Config:
         self.apple_amazon_termos_por_ciclo: int = int(apple.get("amazon_termos_por_ciclo", 2))
         bloqueadas = apple.get("palavras_bloqueadas")
         self.apple_palavras_bloqueadas: list[str] = [str(p).lower() for p in (
-            ["recondicionado", "seminovo", "usado", "vitrine", "open box", "swap"] if bloqueadas is None else bloqueadas)]
+            ["recondicionado", "seminovo", "usado", "vitrine", "open box", "caixa aberta", "swap"] if bloqueadas is None else bloqueadas)]
 
         # Mix de categorias (ofertas/mix.py): fatia-alvo dos posts por categoria
         mix = y.get("mix") or {}

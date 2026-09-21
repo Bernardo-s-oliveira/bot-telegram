@@ -139,7 +139,8 @@ def test_o_limite_de_queda_do_canal_geral_continua_o_mesmo(com_grupo_apple):
 
 
 def test_apple_bloqueia_recondicionados_e_seminovos(com_grupo_apple):
-    for titulo in ("iPhone 14 128GB Recondicionado", "Apple iPhone 13 Seminovo", "iPhone 12 Usado Vitrine"):
+    for titulo in ("iPhone 14 128GB Recondicionado", "Apple iPhone 13 Seminovo", "iPhone 12 Usado Vitrine",
+                   "Apple iPhone 15 128 GB Cor Rosa (Novo com caixa aberta)", "iPhone 15 Open Box"):
         o = oferta(titulo, preco=3000.0)
         registrar_historico(o, 4000.0)
         aprovadas, rejeicoes = pipeline.filtrar_detalhado([o], destinos.apple())

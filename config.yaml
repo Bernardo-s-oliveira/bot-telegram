@@ -56,6 +56,7 @@ apple:
     - usado
     - vitrine
     - open box
+    - caixa aberta
     - swap
 
 # Mix de categorias: fatia-alvo dos posts por categoria (soma 100). O bot olha os últimos `janela_posts`
