@@ -405,13 +405,19 @@ async def _postar_lista(bot: Bot, escolhidas: list[Oferta], destino: destinos.De
 async def executar_ciclo(bot: Bot) -> int:
     """Um ciclo completo: coletar -> dividir por destino -> filtrar/escolher -> gerar links -> postar.
     Produtos Apple vão para o grupo Apple (se configurado), o resto para o canal geral; cada destino tem as
-    suas regras e os seus posts recentes. Retorna o nº total de posts."""
-    if not dentro_do_horario():
-        log.info("Fora do horário ativo (%s) — ciclo pulado", config.horario_ativo)
-        return 0
+    suas regras e os seus posts recentes. Retorna o nº total de posts.
 
+    A coleta e o registro de preços rodam mesmo fora do horário ativo: é o que alimenta o histórico usado
+    para validar desconto (queda comprovada), então quanto mais cedo começar, mais cedo o histórico fica
+    suficiente. Só a checagem de vendedor/cupom (abre a página do produto) e o post ficam de fora."""
     brutas = await asyncio.to_thread(coletar)
     await asyncio.to_thread(db.registrar_precos, brutas)  # alimenta o histórico usado para validar descontos
+
+    if not dentro_do_horario():
+        log.info("Fora do horário ativo (%s) — %d ofertas coletadas para o histórico, sem postar",
+                 config.horario_ativo, len(brutas))
+        return 0
+
     grupos = destinos.dividir(brutas)
 
     selecionadas: list[tuple[destinos.Destino, list[Oferta]]] = []

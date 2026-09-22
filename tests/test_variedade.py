@@ -171,3 +171,21 @@ def test_ciclo_com_posts_publica_a_divulgacao_depois_das_ofertas(monkeypatch):
 def test_ciclo_sem_posts_nao_publica_divulgacao(monkeypatch):
     bot, postadas = _ciclo(monkeypatch, [])
     assert postadas == 0 and bot.enviadas == []
+
+
+# ── coleta fora do horário ativo ──────────────────────────────────────
+
+def test_fora_do_horario_ainda_coleta_e_grava_o_historico_mas_nao_posta(monkeypatch):
+    """O histórico de preço deve crescer o dia inteiro, não só na janela em que o bot posta."""
+    o = aprovavel("Chuveiro Lorenzetti Advanced 7500W", "1")
+    monkeypatch.setattr(pipeline, "coletar", lambda: [o])
+    monkeypatch.setattr(pipeline, "dentro_do_horario", lambda: False)
+
+    def selecionar_nao_deveria_rodar(*a, **k):
+        raise AssertionError("fora do horário não deveria escolher nem checar vendedor")
+    monkeypatch.setattr(pipeline, "selecionar", selecionar_nao_deveria_rodar)
+    bot = BotFalso()
+
+    assert asyncio.run(pipeline.executar_ciclo(bot)) == 0
+    assert bot.enviadas == []
+    assert db.historico([o.uid])[o.uid].amostras == 1
