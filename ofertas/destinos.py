@@ -1,6 +1,6 @@
-"""Para onde cada oferta vai: canal geral ou grupo Apple.
+"""Para onde cada oferta vai: canal geral ou o segundo grupo ("apple", TELEGRAM_CHAT_ID_APPLE).
 
-Produto Apple vai para o grupo Apple (TELEGRAM_CHAT_ID_APPLE); o resto, para o canal geral. Cada destino tem
+Produto Apple vai para o segundo grupo, assim como o pedido de cliente que pede `destino: apple`; o resto, para o canal geral. Cada destino tem
 suas próprias regras de seleção: o geral usa o mix de categorias e as duas faixas (campeões e queda de preço);
 o Apple só posta quedas de preço COMPROVADAS (Apple raramente entra em promoção grande, então o limite é
 menor que o do geral) e ignora recondicionados/seminovos. Variedade e mix de cada destino são contados só
@@ -64,18 +64,26 @@ def e_apple(o: Oferta) -> bool:
     return bool(_RE_COMECA.match(titulo)) or not _RE_TERCEIROS.search(titulo)
 
 
+def _nome_do_destino(o: Oferta, apple_ligado: bool) -> str:
+    """Pedido com destino próprio (pedidos.yaml) vai para ele; senão o produto decide (Apple -> grupo Apple).
+    Sem o segundo grupo configurado, tudo vai para o geral."""
+    if o.destino in ("geral", "apple"):
+        return "apple" if (o.destino == "apple" and apple_ligado) else "geral"
+    return "apple" if apple_ligado and e_apple(o) else "geral"
+
+
 def dividir(ofertas: list[Oferta]) -> dict[str, list[Oferta]]:
     """{destino: ofertas}. Sem grupo Apple configurado, tudo vai para o geral."""
     grupos: dict[str, list[Oferta]] = {"geral": [], "apple": []}
     apple_ligado = apple() is not None
     for o in ofertas:
-        grupos["apple" if apple_ligado and e_apple(o) else "geral"].append(o)
+        grupos[_nome_do_destino(o, apple_ligado)].append(o)
     return grupos
 
 
 def chat_para(o: Oferta) -> tuple[str, str]:
     """(destino, chat_id) de uma oferta avulsa (conversor manual)."""
     d = apple()
-    if d and e_apple(o):
+    if d and _nome_do_destino(o, True) == "apple":
         return d.nome, d.chat_id
     return "geral", config.chat_id

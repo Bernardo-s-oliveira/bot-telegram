@@ -4,7 +4,7 @@ from collections import Counter
 
 import pytest
 
-from ofertas import db, mix, pedidos, pipeline, selecao
+from ofertas import db, destinos, mix, pedidos, pipeline, selecao
 from ofertas.config import BASE_DIR
 from ofertas.formatter import montar_caption
 from ofertas.models import Oferta
@@ -181,7 +181,8 @@ def test_o_pedidos_yaml_que_acompanha_o_projeto_esta_correto(monkeypatch):
     monkeypatch.setattr(pedidos.config, "pedidos_arquivo", str(BASE_DIR / "pedidos.yaml"))
     lista = {p.nome: (p.preco_min, p.preco_max) for p in pedidos.carregar()}
     assert lista == {"Ryzen 5 5600": (500.0, 600.0), "Placa-mãe A520 ou B550 (AM4)": (300.0, 600.0),
-                     "Memória RAM 16GB DDR4 (desktop)": (500.0, 1000.0)}
+                     "Memória RAM 16GB DDR4 (desktop)": (500.0, 1000.0),
+                     "Ar-condicionado inverter (segundo canal)": (1000.0, 1900.0)}
 
 
 # ── marcação por faixa de preço ──────────────────────────────────────
@@ -247,6 +248,7 @@ pedidos:
 """)
     monkeypatch.setattr(pedidos.config, "fonte_ml", {"ativa": True})
     monkeypatch.setattr(pedidos.config, "fonte_amazon", {"ativa": False})
+    monkeypatch.setattr(pedidos.config, "fonte_shopee", {"ativa": False})   # pipeline.coletar() também busca na Shopee
     monkeypatch.setattr(mercadolivre, "tem_sessao", lambda: True)
     chamadas = []
     monkeypatch.setattr(mercadolivre, "buscar_termos",
@@ -549,3 +551,108 @@ def test_todos_pausados_nao_busca_nada_e_so_relata(monkeypatch, arquivo):
     monkeypatch.setattr(mercadolivre, "buscar_termos", lambda t: pytest.fail("não deveria buscar"))
     relatorio = pedidos.coletar([])
     assert len(relatorio) == 1 and "pausado" in relatorio[0]
+
+
+# ── ar-condicionado e destino próprio (segundo canal) ────────────────
+
+@pytest.fixture
+def ar_condicionado(monkeypatch):
+    """O pedido de ar-condicionado como está no pedidos.yaml que acompanha o projeto."""
+    monkeypatch.setattr(pedidos.config, "pedidos_arquivo", str(BASE_DIR / "pedidos.yaml"))
+    return next(p for p in pedidos.carregar() if p.nome.startswith("Ar-condicionado"))
+
+
+def test_o_ar_condicionado_do_arquivo_vai_para_o_segundo_canal_com_teto_de_1900(ar_condicionado):
+    assert ar_condicionado.ativo and ar_condicionado.destino == "apple" and ar_condicionado.preco_max == 1900.0
+
+
+@pytest.mark.parametrize("titulo", [
+    "Ar Condicionado Split Hi Wall Inverter Gree G-top 12000 Btus Frio 220v",
+    "Ar-condicionado Split Inverter Philco 9000 Btus Quente E Frio",
+    "Ar Condicionado Inverter Midea Ai Ecomaster 12000 Btu/h Frio",
+    "Ar Condicionado Split Inversor Elgin Eco 9000 Btus",
+])
+def test_ar_condicionado_inverter_combina(ar_condicionado, titulo):
+    assert pedidos.combina(ar_condicionado, titulo)
+
+
+@pytest.mark.parametrize("titulo", [
+    "Ar Condicionado Split Hi Wall 12000 Btus Só Frio",                   # não é inverter
+    "Ar Condicionado Portátil 12000 Btus Quente E Frio",
+    "Suporte Ar Condicionado Split Inverter 9000 A 18000 Btus",
+    "Controle Remoto Universal Para Ar Condicionado Inverter",
+    "Placa Eletrônica Ar Condicionado Split Inverter Samsung",
+    "Cortina De Ar Condicionado Inverter",
+    "Ar Condicionado Split Inverter Consul 12000 Btus Usado",
+])
+def test_ar_condicionado_que_nao_e_o_pedido(ar_condicionado, titulo):
+    assert not pedidos.combina(ar_condicionado, titulo)
+
+
+def test_hifen_vale_como_espaco_nas_regras_de_titulo():
+    assert pedidos.normalizar("Ar-Condicionado SO-DIMM") == "ar condicionado so dimm"
+    assert pedidos.combina(RAM, "Memória DDR4 16GB SO-DIMM") is False          # "so-dimm" continua barrando
+
+
+def test_destino_do_pedido_e_lido_e_validado(arquivo, caplog):
+    arquivo("""
+pedidos:
+  - {nome: Sem destino, buscas: [x], preco: [1, 2]}
+  - {nome: Segundo canal, buscas: [x], preco: [1, 2], destino: Apple}
+  - {nome: Geral, buscas: [x], preco: [1, 2], destino: geral}
+  - {nome: Errado, buscas: [x], preco: [1, 2], destino: telegram}
+""")
+    with caplog.at_level(logging.WARNING, logger="ofertas.pedidos"):
+        lido = {p.nome: p.destino for p in pedidos.carregar()}
+    assert lido == {"Sem destino": None, "Segundo canal": "apple", "Geral": "geral"}
+    assert "destino 'telegram' inválido" in caplog.text
+
+
+def test_anuncio_marcado_leva_o_destino_do_pedido():
+    p = pedidos.Pedido("Ar", ["ar"], 1000, 1900, ["ar condicionado"], [], [], True, "apple")
+    todas: list = []
+    pedidos.marcar([oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="a")], [p], todas)
+    assert todas[0].destino == "apple"
+
+
+SEGUNDO_CANAL = "-1001234567890"
+
+
+@pytest.fixture
+def com_segundo_canal(monkeypatch):
+    monkeypatch.setattr(destinos.config, "chat_id_apple", SEGUNDO_CANAL)
+
+
+def test_pedido_com_destino_apple_vai_para_o_segundo_canal(com_segundo_canal):
+    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="apple", pedido="Ar")
+    fone = oferta("Fone Bluetooth", 50.0, id_produto="fone")
+    iphone = oferta("iPhone 15 128gb Apple", 3500.0, id_produto="iph")
+    grupos = destinos.dividir([ar, fone, iphone])
+    assert [o.id_produto for o in grupos["apple"]] == ["ar", "iph"]
+    assert [o.id_produto for o in grupos["geral"]] == ["fone"]
+
+
+def test_destino_geral_forcado_vence_o_produto_apple(com_segundo_canal):
+    iphone = oferta("iPhone 15 128gb Apple", 3500.0, id_produto="iph", destino="geral")
+    assert [o.id_produto for o in destinos.dividir([iphone])["geral"]] == ["iph"]
+
+
+def test_sem_segundo_canal_configurado_o_pedido_cai_no_geral():
+    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="apple", pedido="Ar")
+    assert [o.id_produto for o in destinos.dividir([ar])["geral"]] == ["ar"]
+    assert destinos.chat_para(ar)[0] == "geral"
+
+
+def test_chat_para_leva_o_pedido_ao_segundo_canal(com_segundo_canal):
+    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="apple")
+    assert destinos.chat_para(ar) == ("apple", SEGUNDO_CANAL)
+
+
+def test_pedido_de_ar_condicionado_e_postado_no_segundo_canal_mesmo_sem_queda_de_preco(monkeypatch, com_segundo_canal):
+    """O segundo canal só aceita queda de preço comprovada nas ofertas normais; o pedido passa pela faixa de preço."""
+    monkeypatch.setattr(pipeline.mercadolivre, "verificar_vendedores", leitor_de_paginas({"ar": (5, False)}))
+    ar = ml_pedido("ar", "Ar Condicionado Split Inverter Gree 12000 Btus", 1799.0, nome="Ar", destino="apple")
+    normal = oferta("Fone Bluetooth Sem Fio", 50.0, id_produto="fone", nota=4.9, vendas=50_000, destino=None)
+    grupos = destinos.dividir([ar, normal])
+    escolhidas, _ = pipeline.selecionar(grupos["apple"], 3, True, destinos.apple())
+    assert [o.id_produto for o in escolhidas] == ["ar"]

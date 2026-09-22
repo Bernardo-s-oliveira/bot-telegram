@@ -135,7 +135,9 @@ A Amazon vem **ligada** (`fontes.amazon.ativa: true` no `config.yaml`) e precisa
 
 **Ritmo:** cada departamento gera 4 páginas de ofertas, e com os nichos do painel são dezenas de páginas. Pedir tudo de uma vez leva a captcha, então `fontes.amazon.requisicoes_por_ciclo` (padrão 4) limita quantas páginas a Amazon recebe por ciclo, em rodízio: todas são cobertas ao longo de algumas horas. Se aparecer `Amazon bloqueou a busca` no log, reduza esse número ou aumente `geral.intervalo_minutos`.
 
-## 🍎 Grupo só de produtos Apple
+## 🍎 Segundo canal (produtos Apple e pedidos)
+
+> O nome do canal pode ser qualquer um: o bot só usa o **ID** (`TELEGRAM_CHAT_ID_APPLE`). Além de produtos Apple, esse canal recebe os pedidos de `pedidos.yaml` marcados com `destino: apple`.
 
 O bot pode publicar em **dois lugares**: produtos Apple (iPhone, iPad, MacBook, Apple Watch, AirPods, AirTag…) vão para um **grupo Apple**, e o resto para o canal geral. Capa, película, pulseira e cabo "compatível com iPhone" são acessórios de terceiros e ficam no canal geral.
 
@@ -169,6 +171,7 @@ O arquivo já vem com os três pedidos atuais (Ryzen 5 5600 de R$ 500 a 600, pla
 - **Sem importado.** Anúncio de comércio internacional do Mercado Livre é descartado (`selecao.evitar_internacional`, ligado por padrão — vale para **todas** as ofertas do ML, não só para os pedidos). Usado, seminovo e recondicionado também são ignorados nos pedidos.
 - **Vendedor conferido.** No ML o bot abre a página do anúncio e só posta se o vendedor tiver reputação suficiente (nível ≥ 4). Na Amazon exige nota ≥ 4,3.
 - **Não passa pelo mix nem pela variedade**, e não precisa de histórico de preço nem de vendas. Ainda vale a checagem de "preço muito abaixo dos anúncios iguais".
+- **Escolher o canal:** `destino: apple` manda o pedido para o **segundo canal** (o de `TELEGRAM_CHAT_ID_APPLE`, hoje "Caçador de Ofertas Pessoal! Promoções"); `destino: geral` para o canal geral; sem a linha, o produto decide (Apple vai para o segundo canal, o resto para o geral). Sem o segundo canal configurado, tudo cai no geral. O `pedidos.yaml` traz o ar-condicionado inverter (R$ 1.000 a 1.900) já apontado para o segundo canal.
 - **Pausar um pedido** sem apagá-lo: adicione `ativo: false` nele. O bot para de procurar e de priorizar aquele item (o relatório mostra "pausado"); para voltar, troque por `true` ou apague a linha. Um anúncio dele ainda pode sair como oferta comum, se passar nos critérios normais.
 - No máximo `pedidos.max_por_ciclo` (2) pedidos por ciclo, um anúncio por pedido (o mais barato); o resto das vagas segue com as ofertas normais.
 

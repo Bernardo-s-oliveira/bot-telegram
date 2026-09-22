@@ -34,6 +34,8 @@ class Oferta:
 
     # Pedido de cliente (pedidos.yaml) que originou esta oferta; ganha prioridade no canal
     pedido: str | None = None
+    # Destino imposto pelo pedido ("geral" | "apple"); None = decidido pelo produto (destinos.dividir)
+    destino: str | None = None
     # Anúncio de importação/comércio internacional (ML, lido na página do produto); None = não conferido
     internacional: bool | None = None
 

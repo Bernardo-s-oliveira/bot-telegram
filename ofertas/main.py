@@ -137,7 +137,7 @@ def cmd_testar(args):
 
 def cmd_pedidos(_):
     """Procura os pedidos de clientes (pedidos.yaml) e mostra o que achou, sem postar nada."""
-    from . import pedidos, selecao
+    from . import destinos, pedidos, selecao
     from .formatter import preco_br
     from .sources import mercadolivre
     todas: list = []
@@ -163,7 +163,8 @@ def cmd_pedidos(_):
             situacao = "✅ ok"
         else:
             situacao = "⚠️ vendedor não conferido"
-        print(f"\n[{o.pedido}] {preco_br(o.preco)} — {situacao}")
+        canal = " → segundo canal" if (o.destino == "apple" and destinos.apple()) else ""
+        print(f"\n[{o.pedido}{canal}] {preco_br(o.preco)} — {situacao}")
         print(f"   {o.titulo[:78]}\n   vendedor: {o.vendedor or '?'} · nota {o.nota} · {o.url_produto}")
 
 

@@ -35,11 +35,13 @@ class Pedido:
     qualquer_de: list[str] = field(default_factory=list)    # pelo menos UMA destas
     nao_deve_ter: list[str] = field(default_factory=list)   # NENHUMA destas
     ativo: bool = True                                      # False: pausado (não procura, não prioriza)
+    destino: str | None = None                              # None = o produto decide; "geral" | "apple" = canal fixo
 
 
 def normalizar(texto: str) -> str:
-    """Minúsculas, sem acento, e unidades coladas ao número ("16 GB" -> "16gb", "2 x 8" -> "2x8")."""
+    """Minúsculas, sem acento nem hífen, e unidades coladas ao número ("16 GB" -> "16gb", "2 x 8" -> "2x8")."""
     t = unicodedata.normalize("NFKD", (texto or "").lower()).encode("ascii", "ignore").decode()
+    t = t.replace("-", " ")                       # "Ar-Condicionado" = "ar condicionado"; "so-dimm" = "so dimm"
     t = re.sub(r"(\d)\s+(gb|mb|tb|mhz|ghz|w|v)\b", r"\1\2", t)
     t = re.sub(r"(\d)\s*x\s*(\d)", r"\1x\2", t)
     return re.sub(r"\s+", " ", t).strip()
@@ -98,9 +100,12 @@ def carregar() -> list[Pedido]:
             if not nome or not buscas or len(faixa) != 2:
                 raise ValueError("precisa de nome, buscas e preco: [mínimo, máximo]")
             baixo, alto = sorted(float(x) for x in faixa)
+            destino = str(e.get("destino") or "").strip().lower() or None
+            if destino not in (None, "geral", "apple"):
+                raise ValueError(f"destino '{destino}' inválido: use geral ou apple")
             pedidos.append(Pedido(nome, buscas, baixo, alto, _lista(e.get("deve_ter")),
                                   _lista(e.get("qualquer_de")), _lista(e.get("nao_deve_ter")),
-                                  _ligado(e.get("ativo"))))
+                                  _ligado(e.get("ativo")), destino))
         except (AttributeError, TypeError, ValueError) as err:
             log.warning("%s: pedido #%d ignorado — %s", caminho.name, i, err)
     return pedidos
@@ -120,7 +125,7 @@ def marcar(achadas: list[Oferta], pedidos: list[Pedido], todas: list[Oferta]) ->
             if alvo is None:
                 todas.append(o)
                 por_uid[o.uid] = alvo = o
-            alvo.pedido = p.nome
+            alvo.pedido, alvo.destino = p.nome, p.destino
         faixa = f"R$ {p.preco_min:g}–{p.preco_max:g}"
         if not vistos:
             relatorio.append(f"Pedido '{p.nome}': nenhum anúncio combina com as regras do título")
