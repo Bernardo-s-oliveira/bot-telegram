@@ -2,7 +2,7 @@
 
 geral:
   intervalo_minutos: 30        # de quanto em quanto tempo buscar ofertas novas
-  max_posts_por_ciclo: 5       # MÁXIMO de ofertas por ciclo. Posta menos se faltar oferta boa (qualidade > quantidade)
+  max_posts_por_ciclo: 8       # MÁXIMO de ofertas por ciclo. Posta menos se faltar oferta boa (qualidade > quantidade)
   espacamento_segundos: 120    # pausa entre um post e outro no mesmo ciclo
   nao_repetir_dias: 7          # não repostar o mesmo produto dentro desse prazo (exceto queda de preço, veja abaixo)
   horario_ativo: "08:00-23:00" # só posta nesse intervalo (hora do PC); "" = 24h
@@ -48,7 +48,7 @@ pedidos:
 # usa o mix de categorias. Como a página de ofertas do ML quase nunca traz Apple, o bot também faz BUSCAS.
 apple:
   ativo: true
-  max_posts_por_ciclo: 3
+  max_posts_por_ciclo: 8
   amazon_termos_por_ciclo: 2   # quantos termos de `buscas` a Amazon recebe por ciclo (rodízio; 0 = todos)
   queda_minima: 5              # % mínimo de queda comprovada no histórico (o canal geral usa filtros.desconto_minimo).
                                # Preço de Apple mexe pouco, então o limite é baixo; o post mostra a queda a partir deste valor.
@@ -157,7 +157,7 @@ fontes:
     buscas: []                 # termos livres extras, ex: [echo dot, air fryer]
 
   shopee:
-    ativa: false
+    ativa: true
     limite: 0                 # total de produtos pedidos à Open API por ciclo
     buscas: []                 # vazio = ofertas em destaque da Shopee (todas categorias).
     # Para um nicho, liste palavras-chave, ex:
