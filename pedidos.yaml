@@ -20,8 +20,9 @@
 #    nao_deve_ter  palavras que NÃO podem estar no título
 #    ativo         (opcional) false = PAUSA este pedido sem apagá-lo: o bot não procura nem prioriza. Para voltar,
 #                  troque por true ou apague a linha. (Também dá para comentar o pedido inteiro com # na frente.)
-#    destino       (opcional) para qual canal vai: geral | apple (o segundo canal, "Caçador de Ofertas Pessoal! Promoções").
-#                  Sem esta linha, o produto decide (produto Apple vai para o segundo canal, o resto para o geral).
+#    destino       (opcional) para qual canal vai: geral | pessoal (canal "Caçador de Ofertas Pessoal! Promoções",
+#                  só recebe pedido marcado assim) | apple (grupo dedicado a produtos Apple). Sem esta linha, o
+#                  produto decide (produto Apple vai para o grupo Apple, o resto para o geral).
 #
 #  REGRAS DAS PALAVRAS
 #    • Sem acento e sem diferença de maiúscula: "placa mae" acha "Placa Mãe".
@@ -60,8 +61,8 @@ pedidos:
     qualquer_de: ["16gb", "2x8gb"]                            # um pente de 16 GB ou dois de 8 GB
     nao_deve_ter: [notebook, laptop, sodimm, so-dimm, servidor, ecc, 32gb, 64gb, 2x16gb, 4x8gb, 2133mhz]
 
-  - nome: Ar-condicionado inverter (segundo canal)
-    destino: apple                                            # sai no canal "Caçador de Ofertas Pessoal! Promoções"
+  - nome: Ar-condicionado inverter (canal pessoal)
+    destino: pessoal                                          # sai no canal "Caçador de Ofertas Pessoal! Promoções"
     buscas:
       - ar condicionado inverter
       - ar condicionado split inverter 12000 btus

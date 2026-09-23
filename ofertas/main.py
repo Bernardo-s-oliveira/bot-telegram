@@ -18,6 +18,9 @@ def cmd_check(_):
         print("✅ Token do bot")
     if config.chat_id:
         print(f"✅ Canal/grupo: {config.chat_id}")
+    if config.chat_id_pessoal:
+        print(f"✅ Canal pessoal: {config.chat_id_pessoal}" +
+              ("" if config.pessoal_ativo else " (desligado em pessoal.ativo)"))
     if config.chat_id_apple:
         print(f"✅ Grupo Apple: {config.chat_id_apple}" + ("" if config.apple_ativo else " (desligado em apple.ativo)"))
     if config.owner_id:
@@ -87,7 +90,8 @@ def cmd_postar(args):
         async with bot:
             await postar_oferta(bot, o, chat)
         db.registrar(o, destino)
-        print(f"✅ Postada no {'grupo Apple' if destino == 'apple' else 'canal'}: {o.titulo[:60]}")
+        nomes = {"apple": "grupo Apple", "pessoal": "canal pessoal"}
+        print(f"✅ Postada no {nomes.get(destino, 'canal')}: {o.titulo[:60]}")
 
     asyncio.run(go())
 
@@ -163,7 +167,8 @@ def cmd_pedidos(_):
             situacao = "✅ ok"
         else:
             situacao = "⚠️ vendedor não conferido"
-        canal = " → segundo canal" if (o.destino == "apple" and destinos.apple()) else ""
+        ligado = {"pessoal": destinos.pessoal, "apple": destinos.apple}.get(o.destino)
+        canal = f" → canal {o.destino}" if (ligado and ligado()) else ""
         print(f"\n[{o.pedido}{canal}] {preco_br(o.preco)} — {situacao}")
         print(f"   {o.titulo[:78]}\n   vendedor: {o.vendedor or '?'} · nota {o.nota} · {o.url_produto}")
 
@@ -177,7 +182,7 @@ def cmd_simular(_):
     print(f"\nColetadas: {len(ofertas)}")
     for d in destinos.ativos():
         escolhidas, rejeicoes = pipeline.selecionar(grupos[d.nome], d.max_posts, True, d)
-        titulo = "GRUPO APPLE" if d.nome == "apple" else "CANAL GERAL"
+        titulo = {"apple": "GRUPO APPLE", "pessoal": "CANAL PESSOAL"}.get(d.nome, "CANAL GERAL")
         print(f"\n══ {titulo}: {len(grupos[d.nome])} candidatas · escolhidas: {len(escolhidas)}")
         if rejeicoes:
             print("Rejeitadas: " + ", ".join(f"{m}: {q}" for m, q in sorted(rejeicoes.items(), key=lambda x: -x[1])))

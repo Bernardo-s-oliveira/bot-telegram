@@ -404,8 +404,9 @@ async def _postar_lista(bot: Bot, escolhidas: list[Oferta], destino: destinos.De
 
 async def executar_ciclo(bot: Bot) -> int:
     """Um ciclo completo: coletar -> dividir por destino -> filtrar/escolher -> gerar links -> postar.
-    Produtos Apple vão para o grupo Apple (se configurado), o resto para o canal geral; cada destino tem as
-    suas regras e os seus posts recentes. Retorna o nº total de posts.
+    Produtos Apple vão para o grupo Apple, pedido de cliente com `destino: pessoal` vai para o canal pessoal
+    (cada um se configurado), o resto para o canal geral; cada destino tem as suas regras e os seus posts
+    recentes. Retorna o nº total de posts.
 
     A coleta e o registro de preços rodam mesmo fora do horário ativo: é o que alimenta o histórico usado
     para validar desconto (queda comprovada), então quanto mais cedo começar, mais cedo o histórico fica

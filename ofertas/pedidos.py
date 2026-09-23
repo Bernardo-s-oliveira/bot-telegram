@@ -35,7 +35,7 @@ class Pedido:
     qualquer_de: list[str] = field(default_factory=list)    # pelo menos UMA destas
     nao_deve_ter: list[str] = field(default_factory=list)   # NENHUMA destas
     ativo: bool = True                                      # False: pausado (não procura, não prioriza)
-    destino: str | None = None                              # None = o produto decide; "geral" | "apple" = canal fixo
+    destino: str | None = None                              # None = o produto decide; "geral"|"pessoal"|"apple" = canal fixo
 
 
 def normalizar(texto: str) -> str:
@@ -101,8 +101,8 @@ def carregar() -> list[Pedido]:
                 raise ValueError("precisa de nome, buscas e preco: [mínimo, máximo]")
             baixo, alto = sorted(float(x) for x in faixa)
             destino = str(e.get("destino") or "").strip().lower() or None
-            if destino not in (None, "geral", "apple"):
-                raise ValueError(f"destino '{destino}' inválido: use geral ou apple")
+            if destino not in (None, "geral", "pessoal", "apple"):
+                raise ValueError(f"destino '{destino}' inválido: use geral, pessoal ou apple")
             pedidos.append(Pedido(nome, buscas, baixo, alto, _lista(e.get("deve_ter")),
                                   _lista(e.get("qualquer_de")), _lista(e.get("nao_deve_ter")),
                                   _ligado(e.get("ativo")), destino))

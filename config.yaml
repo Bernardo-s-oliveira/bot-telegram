@@ -42,6 +42,13 @@ pedidos:
   max_por_ciclo: 2            # quantos pedidos, no máximo, entram por ciclo (um anúncio por pedido)
   selo: "📌 Pedido de cliente"  # linha que aparece no post; "" = sem selo
 
+# Canal pessoal: não recebe produto nenhum sozinho. Só existe para os pedidos de cliente (pedidos.yaml) marcados
+# com `destino: pessoal` — pedidos que não são Apple e que você quer manter fora do canal geral (ex.: o
+# ar-condicionado). ID em TELEGRAM_CHAT_ID_PESSOAL no .env; sem ele, esses pedidos caem no canal geral.
+pessoal:
+  ativo: true
+  max_posts_por_ciclo: 8
+
 # Grupo Apple: produto Apple vai para um grupo próprio (TELEGRAM_CHAT_ID_APPLE no .env); o resto, para o canal
 # geral. Sem o ID do grupo no .env, nada muda e tudo continua indo para o canal. O grupo Apple posta só QUEDAS DE
 # PREÇO COMPROVADAS (promoção grande em Apple é rara, por isso o limite é bem menor que o do canal geral) e não

@@ -135,22 +135,27 @@ A Amazon vem **ligada** (`fontes.amazon.ativa: true` no `config.yaml`) e precisa
 
 **Ritmo:** cada departamento gera 4 páginas de ofertas, e com os nichos do painel são dezenas de páginas. Pedir tudo de uma vez leva a captcha, então `fontes.amazon.requisicoes_por_ciclo` (padrão 4) limita quantas páginas a Amazon recebe por ciclo, em rodízio: todas são cobertas ao longo de algumas horas. Se aparecer `Amazon bloqueou a busca` no log, reduza esse número ou aumente `geral.intervalo_minutos`.
 
-## 🍎 Segundo canal (produtos Apple e pedidos)
+## 📢🍎📌 Três canais: geral, grupo Apple e canal pessoal
 
-> O nome do canal pode ser qualquer um: o bot só usa o **ID** (`TELEGRAM_CHAT_ID_APPLE`). Além de produtos Apple, esse canal recebe os pedidos de `pedidos.yaml` marcados com `destino: apple`.
+> O nome de cada canal no Telegram pode ser qualquer um: o bot só usa o **ID**. O grupo Apple já se chamou de outra coisa e virou "canal pessoal" num momento deste projeto — é só um exemplo de que o nome não importa, o que importa é qual ID vai em qual campo do `.env`.
 
-O bot pode publicar em **dois lugares**: produtos Apple (iPhone, iPad, MacBook, Apple Watch, AirPods, AirTag…) vão para um **grupo Apple**, e o resto para o canal geral. Capa, película, pulseira e cabo "compatível com iPhone" são acessórios de terceiros e ficam no canal geral.
+O bot pode publicar em até **três lugares**:
+- **Canal geral** (`TELEGRAM_CHAT_ID`) — tudo que não é Apple nem um pedido com canal próprio.
+- **Grupo Apple** (`TELEGRAM_CHAT_ID_APPLE`, opcional) — produtos Apple (iPhone, iPad, MacBook, Apple Watch, AirPods, AirTag…), detectados automaticamente pelo título. Capa, película, pulseira e cabo "compatível com iPhone" são acessórios de terceiros e ficam no canal geral.
+- **Canal pessoal** (`TELEGRAM_CHAT_ID_PESSOAL`, opcional) — não recebe produto nenhum sozinho. Só existe para os pedidos de cliente (`pedidos.yaml`) marcados com `destino: pessoal`, como o ar-condicionado que já vem no arquivo.
 
-**Como ligar:**
-1. Adicione o bot ao grupo Apple.
-2. No grupo, mande `/id` (ou `/id@nomedobot`): ele responde com o ID do grupo (costuma ser negativo, ex.: `-1001234567890`).
-3. Coloque o ID em `TELEGRAM_CHAT_ID_APPLE` no `.env` e reinicie o bot. **Jeito fácil, pelo painel:** clique em **🔎 Detectar IDs**. Cada canal/grupo onde o bot apareceu vira um cartão com dois botões, **📢 Canal geral** e **🍎 Grupo Apple**; o painel destaca o **sugerido pelo nome** (um grupo chamado "Promoções Apple" vem sugerido como Apple) e mostra se aquele chat já é hoje o canal geral ou o grupo Apple. Escolher o destino de um chat nunca mexe no outro campo, e o painel recusa salvar o mesmo ID nos dois. Se o bot estiver ligado, desligue-o antes de detectar (o Telegram só deixa um leitor por vez).
+Sem o ID de um destino, o que iria para ele cai no canal geral.
 
-Sem o ID, nada muda: tudo continua indo para o canal geral.
+**Como ligar o grupo Apple ou o canal pessoal:**
+1. Adicione o bot ao grupo/canal.
+2. Lá dentro, mande `/id` (ou `/id@nomedobot`): ele responde com o ID (costuma ser negativo, ex.: `-1001234567890`).
+3. Coloque o ID em `TELEGRAM_CHAT_ID_APPLE` ou `TELEGRAM_CHAT_ID_PESSOAL` no `.env` e reinicie o bot. **Jeito fácil, pelo painel:** clique em **🔎 Detectar IDs**. Cada canal/grupo onde o bot apareceu vira um cartão com um botão por destino (**📢 Canal geral**, **📌 Canal pessoal**, **🍎 Grupo Apple**); o painel destaca o **sugerido pelo nome** (um grupo chamado "Promoções Apple" vem sugerido como Apple) e mostra se aquele chat já ocupa um dos três hoje. Escolher o destino de um chat tira o ID de qualquer outro campo que tivesse o mesmo, e o painel recusa salvar o mesmo ID em dois destinos. Se o bot estiver ligado, desligue-o antes de detectar (o Telegram só deixa um leitor por vez).
 
 **Como o grupo Apple escolhe:** só posta **queda de preço comprovada** no histórico do bot (a partir de 5%, `apple.queda_minima`; Apple raramente cai muito, então o limite é baixo e o post mostra a queda desde o primeiro %), porque Apple raramente entra em promoção grande e o "de" inflado é comum nesses produtos. Por isso **nas primeiras horas ele não posta nada**: precisa de ~1 dia de coleta para saber o preço normal de cada produto. Recondicionados, seminovos, usados e "vitrine" são ignorados. Ele não usa o mix de categorias, e variedade e histórico de posts são contados só sobre o próprio grupo. Como as páginas de ofertas quase nunca trazem Apple, o bot faz **buscas** (`apple.buscas`) no Mercado Livre e na Amazon só para esse grupo; de cada busca só entra o que é realmente produto Apple.
 
-`uv run python -m ofertas simular` mostra as escolhas dos dois destinos. Links que você cola no privado do bot também vão para o grupo certo (produto Apple → grupo Apple).
+**Como o canal pessoal escolhe:** ele não tem faixa de campeões nem de queda de preço — só recebe o que um pedido de cliente marcar com `destino: pessoal` e que estiver dentro da faixa de preço do pedido (ver seção abaixo). Ideal para pedidos que não são Apple e que você não quer misturar no canal geral.
+
+`uv run python -m ofertas simular` mostra as escolhas dos três destinos. Links que você cola no privado do bot também vão para o destino certo (produto Apple → grupo Apple).
 
 ## 📌 Pedidos de clientes — `pedidos.yaml`
 
@@ -171,7 +176,7 @@ O arquivo já vem com os três pedidos atuais (Ryzen 5 5600 de R$ 500 a 600, pla
 - **Sem importado.** Anúncio de comércio internacional do Mercado Livre é descartado (`selecao.evitar_internacional`, ligado por padrão — vale para **todas** as ofertas do ML, não só para os pedidos). Usado, seminovo e recondicionado também são ignorados nos pedidos.
 - **Vendedor conferido.** No ML o bot abre a página do anúncio e só posta se o vendedor tiver reputação suficiente (nível ≥ 4). Na Amazon exige nota ≥ 4,3.
 - **Não passa pelo mix nem pela variedade**, e não precisa de histórico de preço nem de vendas. Ainda vale a checagem de "preço muito abaixo dos anúncios iguais".
-- **Escolher o canal:** `destino: apple` manda o pedido para o **segundo canal** (o de `TELEGRAM_CHAT_ID_APPLE`, hoje "Caçador de Ofertas Pessoal! Promoções"); `destino: geral` para o canal geral; sem a linha, o produto decide (Apple vai para o segundo canal, o resto para o geral). Sem o segundo canal configurado, tudo cai no geral. O `pedidos.yaml` traz o ar-condicionado inverter (R$ 1.000 a 1.900) já apontado para o segundo canal.
+- **Escolher o canal:** `destino: pessoal` manda o pedido para o **canal pessoal** (`TELEGRAM_CHAT_ID_PESSOAL`); `destino: apple` para o **grupo Apple**; `destino: geral` para o canal geral; sem a linha, o produto decide (Apple vai para o grupo Apple, o resto para o geral). Sem o destino escolhido configurado, o pedido cai no geral. O `pedidos.yaml` traz o ar-condicionado inverter (R$ 1.000 a 1.900) já apontado para o canal pessoal.
 - **Pausar um pedido** sem apagá-lo: adicione `ativo: false` nele. O bot para de procurar e de priorizar aquele item (o relatório mostra "pausado"); para voltar, troque por `true` ou apague a linha. Um anúncio dele ainda pode sair como oferta comum, se passar nos critérios normais.
 - No máximo `pedidos.max_por_ciclo` (2) pedidos por ciclo, um anúncio por pedido (o mais barato); o resto das vagas segue com as ofertas normais.
 

@@ -145,6 +145,7 @@ const CAMPOS = [
   ["TELEGRAM_BOT_TOKEN","Token do bot","Telegram",true,"Crie no @BotFather com /newbot e cole aqui."],
   ["TELEGRAM_OWNER_ID","Seu user ID","Telegram",false,"Use “Detectar IDs” depois de salvar o token."],
   ["TELEGRAM_CHAT_ID","ID do canal Geral","Telegram",false,"O canal onde o bot posta. Use “Detectar IDs”."],
+  ["TELEGRAM_CHAT_ID_PESSOAL","ID do canal Pessoal","Telegram",false,"Opcional: só recebe pedido de cliente marcado com “destino: pessoal”. Sem ele, esses pedidos caem no canal."],
   ["TELEGRAM_CHAT_ID_APPLE","ID do canal Apple","Telegram",false,"Opcional: grupo só de produtos Apple. Sem ele, tudo vai para o canal."],
   ["ML_ETIQUETA","Etiqueta do afiliado","Mercado Livre",false,"A “Etiqueta em uso” do Linkbuilder."],
   ["AMAZON_TAG","Tag de associado","Amazon",false,"Sua tag do Amazon Associados (ex: seunome-20)."],
@@ -199,27 +200,25 @@ async function detectarIds(){
 }
 
 const DESTINOS = {geral:{campo:"TELEGRAM_CHAT_ID", nome:"canal geral", botao:"📢 Canal geral"},
+                  pessoal:{campo:"TELEGRAM_CHAT_ID_PESSOAL", nome:"canal pessoal", botao:"📌 Canal pessoal"},
                   apple:{campo:"TELEGRAM_CHAT_ID_APPLE", nome:"grupo Apple", botao:"🍎 Grupo Apple"}};
 function esc(t){ return String(t).replace(/[&<>"']/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])); }
-// Um cartão por canal/grupo detectado: dois botões (canal geral / grupo Apple), com o sugerido em destaque
-// e o campo que aquele chat já ocupa hoje. Assim o ID do grupo Apple não vai parar no canal geral por engano.
+// Um cartão por canal/grupo detectado: um botão por destino, com o sugerido em destaque e o campo que aquele
+// chat já ocupa hoje. Assim o ID de um destino não vai parar em outro por engano.
 function cartaoChat(c){
   const atual = c.atual ? `<span class="muted"> · hoje é o <b>${DESTINOS[c.atual].nome}</b></span>` : "";
   const botao = d => `<button class="${c.sugestao===d?"pri":""}" onclick="setId('${DESTINOS[d].campo}','${c.id}')">`
     + `${DESTINOS[d].botao}${c.sugestao===d?" — sugerido":""}</button>`;
   return `<div class="chat"><b>${esc(c.nome)}</b> <span class="muted">(${c.tipo}) <code>${c.id}</code></span>${atual}
-    <div class="linha">${botao("geral")}${botao("apple")}</div></div>`;
+    <div class="linha">${Object.keys(DESTINOS).map(botao).join("")}</div></div>`;
 }
 function setId(campo,val){
-  // o mesmo ID nunca fica nos dois campos: ao mover um chat, ele sai do outro
-  const outro = {TELEGRAM_CHAT_ID:"TELEGRAM_CHAT_ID_APPLE", TELEGRAM_CHAT_ID_APPLE:"TELEGRAM_CHAT_ID"}[campo];
-  let aviso = "";
-  if(outro && $("#f_"+outro).value.trim() === String(val)){
-    $("#f_"+outro).value = "";
-    aviso = ` (tirei do campo ${outro==="TELEGRAM_CHAT_ID" ? "do canal geral" : "do grupo Apple"}, que tinha o mesmo ID)`;
+  // o mesmo ID nunca fica em dois campos: ao mover um chat, ele sai de qualquer outro que tivesse o mesmo ID
+  for(const d of Object.values(DESTINOS)){
+    if(d.campo!==campo && $("#f_"+d.campo).value.trim()===String(val)) $("#f_"+d.campo).value = "";
   }
   $("#f_"+campo).value = val;
-  toast("Preenchido"+aviso+" — não esqueça de salvar.");
+  toast("Preenchido — não esqueça de salvar.");
 }
 
 async function acao(nome){

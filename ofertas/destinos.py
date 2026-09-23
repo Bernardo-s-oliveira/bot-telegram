@@ -1,10 +1,13 @@
-"""Para onde cada oferta vai: canal geral ou o segundo grupo ("apple", TELEGRAM_CHAT_ID_APPLE).
+"""Para onde cada oferta vai: canal geral, canal pessoal ou grupo Apple.
 
-Produto Apple vai para o segundo grupo, assim como o pedido de cliente que pede `destino: apple`; o resto, para o canal geral. Cada destino tem
-suas próprias regras de seleção: o geral usa o mix de categorias e as duas faixas (campeões e queda de preço);
-o Apple só posta quedas de preço COMPROVADAS (Apple raramente entra em promoção grande, então o limite é
-menor que o do geral) e ignora recondicionados/seminovos. Variedade e mix de cada destino são contados só
-sobre os posts dele. Sem o grupo configurado, tudo continua indo para o canal geral.
+Produto Apple (detectado pelo título/vendedor) vai para o grupo Apple (TELEGRAM_CHAT_ID_APPLE); o resto, para
+o canal geral. O canal pessoal (TELEGRAM_CHAT_ID_PESSOAL) não recebe nada automaticamente: só os pedidos de
+cliente (pedidos.yaml) marcados com `destino: pessoal` vão para lá — é o canal para pedidos que não são Apple
+(ex.: ar-condicionado) e que você quer manter fora do canal geral. Cada destino tem suas próprias regras de
+seleção: o geral usa o mix de categorias e as duas faixas (campeões e queda de preço); o Apple só posta quedas
+de preço COMPROVADAS (Apple raramente entra em promoção grande, então o limite é menor que o do geral) e
+ignora recondicionados/seminovos. Variedade e mix de cada destino são contados só sobre os posts dele. Sem um
+destino configurado, tudo que iria para ele cai no canal geral.
 """
 import re
 from dataclasses import dataclass
@@ -12,10 +15,12 @@ from dataclasses import dataclass
 from .config import config
 from .models import Oferta
 
+_NOMES = ("geral", "pessoal", "apple")
+
 
 @dataclass(frozen=True)
 class Destino:
-    nome: str                                  # "geral" | "apple" (gravado no banco)
+    nome: str                                  # "geral" | "pessoal" | "apple" (gravado no banco)
     chat_id: str
     max_posts: int
     usar_mix: bool = True                      # mix de categorias (só o canal geral)
@@ -28,6 +33,14 @@ def geral() -> Destino:
     return Destino("geral", config.chat_id, config.max_posts_por_ciclo)
 
 
+def pessoal() -> Destino | None:
+    """Canal de pedidos de cliente que não são Apple, se estiver ligado e com o ID configurado. Só recebe
+    o que um pedido (pedidos.yaml) marcar com `destino: pessoal` — nenhum produto cai aqui sozinho."""
+    if not (config.pessoal_ativo and config.chat_id_pessoal):
+        return None
+    return Destino("pessoal", config.chat_id_pessoal, config.pessoal_max_posts, usar_mix=False)
+
+
 def apple() -> Destino | None:
     """O grupo Apple, se estiver ligado e com o ID configurado."""
     if not (config.apple_ativo and config.chat_id_apple):
@@ -37,8 +50,11 @@ def apple() -> Destino | None:
                    palavras_bloqueadas=tuple(config.apple_palavras_bloqueadas))
 
 
+_FABRICAS = {"geral": geral, "pessoal": pessoal, "apple": apple}
+
+
 def ativos() -> list[Destino]:
-    return [geral()] + ([d] if (d := apple()) else [])
+    return [d for nome in _NOMES if (d := _FABRICAS[nome]())]
 
 
 # ── produto Apple ────────────────────────────────────────────────────
@@ -64,26 +80,27 @@ def e_apple(o: Oferta) -> bool:
     return bool(_RE_COMECA.match(titulo)) or not _RE_TERCEIROS.search(titulo)
 
 
-def _nome_do_destino(o: Oferta, apple_ligado: bool) -> str:
-    """Pedido com destino próprio (pedidos.yaml) vai para ele; senão o produto decide (Apple -> grupo Apple).
-    Sem o segundo grupo configurado, tudo vai para o geral."""
-    if o.destino in ("geral", "apple"):
-        return "apple" if (o.destino == "apple" and apple_ligado) else "geral"
-    return "apple" if apple_ligado and e_apple(o) else "geral"
+def _nome_do_destino(o: Oferta, ligados: dict[str, bool]) -> str:
+    """Pedido com destino próprio (pedidos.yaml) vai para ele, se estiver configurado; senão cai no geral.
+    Sem pedido com destino, o produto decide (Apple -> grupo Apple; "pessoal" nunca é automático)."""
+    if o.destino in _NOMES:
+        return o.destino if (o.destino == "geral" or ligados.get(o.destino)) else "geral"
+    return "apple" if ligados.get("apple") and e_apple(o) else "geral"
 
 
 def dividir(ofertas: list[Oferta]) -> dict[str, list[Oferta]]:
-    """{destino: ofertas}. Sem grupo Apple configurado, tudo vai para o geral."""
-    grupos: dict[str, list[Oferta]] = {"geral": [], "apple": []}
-    apple_ligado = apple() is not None
+    """{destino: ofertas}. Sem um destino configurado, o que iria para ele cai no geral."""
+    destinos = {nome: _FABRICAS[nome]() for nome in _NOMES}
+    ligados = {nome: d is not None for nome, d in destinos.items()}
+    grupos: dict[str, list[Oferta]] = {nome: [] for nome in _NOMES}
     for o in ofertas:
-        grupos[_nome_do_destino(o, apple_ligado)].append(o)
+        grupos[_nome_do_destino(o, ligados)].append(o)
     return grupos
 
 
 def chat_para(o: Oferta) -> tuple[str, str]:
     """(destino, chat_id) de uma oferta avulsa (conversor manual)."""
-    d = apple()
-    if d and _nome_do_destino(o, True) == "apple":
-        return d.nome, d.chat_id
-    return "geral", config.chat_id
+    destinos = {nome: _FABRICAS[nome]() for nome in _NOMES}
+    ligados = {nome: d is not None for nome, d in destinos.items()}
+    nome = _nome_do_destino(o, ligados)
+    return nome, (destinos[nome].chat_id if nome != "geral" else config.chat_id)

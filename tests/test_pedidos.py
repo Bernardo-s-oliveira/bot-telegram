@@ -182,7 +182,7 @@ def test_o_pedidos_yaml_que_acompanha_o_projeto_esta_correto(monkeypatch):
     lista = {p.nome: (p.preco_min, p.preco_max) for p in pedidos.carregar()}
     assert lista == {"Ryzen 5 5600": (500.0, 600.0), "Placa-mãe A520 ou B550 (AM4)": (300.0, 600.0),
                      "Memória RAM 16GB DDR4 (desktop)": (500.0, 1000.0),
-                     "Ar-condicionado inverter (segundo canal)": (1000.0, 1900.0)}
+                     "Ar-condicionado inverter (canal pessoal)": (1000.0, 1900.0)}
 
 
 # ── marcação por faixa de preço ──────────────────────────────────────
@@ -553,7 +553,7 @@ def test_todos_pausados_nao_busca_nada_e_so_relata(monkeypatch, arquivo):
     assert len(relatorio) == 1 and "pausado" in relatorio[0]
 
 
-# ── ar-condicionado e destino próprio (segundo canal) ────────────────
+# ── ar-condicionado e destino próprio (canal pessoal) ─────────────────
 
 @pytest.fixture
 def ar_condicionado(monkeypatch):
@@ -562,8 +562,8 @@ def ar_condicionado(monkeypatch):
     return next(p for p in pedidos.carregar() if p.nome.startswith("Ar-condicionado"))
 
 
-def test_o_ar_condicionado_do_arquivo_vai_para_o_segundo_canal_com_teto_de_1900(ar_condicionado):
-    assert ar_condicionado.ativo and ar_condicionado.destino == "apple" and ar_condicionado.preco_max == 1900.0
+def test_o_ar_condicionado_do_arquivo_vai_para_o_canal_pessoal_com_teto_de_1900(ar_condicionado):
+    assert ar_condicionado.ativo and ar_condicionado.destino == "pessoal" and ar_condicionado.preco_max == 1900.0
 
 
 @pytest.mark.parametrize("titulo", [
@@ -598,61 +598,73 @@ def test_destino_do_pedido_e_lido_e_validado(arquivo, caplog):
     arquivo("""
 pedidos:
   - {nome: Sem destino, buscas: [x], preco: [1, 2]}
-  - {nome: Segundo canal, buscas: [x], preco: [1, 2], destino: Apple}
+  - {nome: Canal pessoal, buscas: [x], preco: [1, 2], destino: Pessoal}
+  - {nome: Grupo Apple, buscas: [x], preco: [1, 2], destino: apple}
   - {nome: Geral, buscas: [x], preco: [1, 2], destino: geral}
   - {nome: Errado, buscas: [x], preco: [1, 2], destino: telegram}
 """)
     with caplog.at_level(logging.WARNING, logger="ofertas.pedidos"):
         lido = {p.nome: p.destino for p in pedidos.carregar()}
-    assert lido == {"Sem destino": None, "Segundo canal": "apple", "Geral": "geral"}
+    assert lido == {"Sem destino": None, "Canal pessoal": "pessoal", "Grupo Apple": "apple", "Geral": "geral"}
     assert "destino 'telegram' inválido" in caplog.text
 
 
 def test_anuncio_marcado_leva_o_destino_do_pedido():
-    p = pedidos.Pedido("Ar", ["ar"], 1000, 1900, ["ar condicionado"], [], [], True, "apple")
+    p = pedidos.Pedido("Ar", ["ar"], 1000, 1900, ["ar condicionado"], [], [], True, "pessoal")
     todas: list = []
     pedidos.marcar([oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="a")], [p], todas)
-    assert todas[0].destino == "apple"
+    assert todas[0].destino == "pessoal"
 
 
-SEGUNDO_CANAL = "-1001234567890"
+CANAL_PESSOAL = "-1001234567890"
 
 
 @pytest.fixture
-def com_segundo_canal(monkeypatch):
-    monkeypatch.setattr(destinos.config, "chat_id_apple", SEGUNDO_CANAL)
+def com_canal_pessoal(monkeypatch):
+    monkeypatch.setattr(destinos.config, "chat_id_pessoal", CANAL_PESSOAL)
 
 
-def test_pedido_com_destino_apple_vai_para_o_segundo_canal(com_segundo_canal):
-    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="apple", pedido="Ar")
+def test_pedido_com_destino_pessoal_vai_para_o_canal_pessoal(com_canal_pessoal):
+    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="pessoal", pedido="Ar")
     fone = oferta("Fone Bluetooth", 50.0, id_produto="fone")
-    iphone = oferta("iPhone 15 128gb Apple", 3500.0, id_produto="iph")
+    iphone = oferta("iPhone 15 128gb Apple", 3500.0, id_produto="iph")   # sem grupo Apple configurado: cai no geral
     grupos = destinos.dividir([ar, fone, iphone])
-    assert [o.id_produto for o in grupos["apple"]] == ["ar", "iph"]
-    assert [o.id_produto for o in grupos["geral"]] == ["fone"]
+    assert [o.id_produto for o in grupos["pessoal"]] == ["ar"]
+    assert [o.id_produto for o in grupos["geral"]] == ["fone", "iph"]
 
 
-def test_destino_geral_forcado_vence_o_produto_apple(com_segundo_canal):
+def test_destino_geral_forcado_vence_o_produto_apple():
     iphone = oferta("iPhone 15 128gb Apple", 3500.0, id_produto="iph", destino="geral")
     assert [o.id_produto for o in destinos.dividir([iphone])["geral"]] == ["iph"]
 
 
-def test_sem_segundo_canal_configurado_o_pedido_cai_no_geral():
-    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="apple", pedido="Ar")
+def test_sem_canal_pessoal_configurado_o_pedido_cai_no_geral():
+    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="pessoal", pedido="Ar")
     assert [o.id_produto for o in destinos.dividir([ar])["geral"]] == ["ar"]
     assert destinos.chat_para(ar)[0] == "geral"
 
 
-def test_chat_para_leva_o_pedido_ao_segundo_canal(com_segundo_canal):
-    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="apple")
-    assert destinos.chat_para(ar) == ("apple", SEGUNDO_CANAL)
+def test_chat_para_leva_o_pedido_ao_canal_pessoal(com_canal_pessoal):
+    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="pessoal")
+    assert destinos.chat_para(ar) == ("pessoal", CANAL_PESSOAL)
 
 
-def test_pedido_de_ar_condicionado_e_postado_no_segundo_canal_mesmo_sem_queda_de_preco(monkeypatch, com_segundo_canal):
-    """O segundo canal só aceita queda de preço comprovada nas ofertas normais; o pedido passa pela faixa de preço."""
+def test_pedido_de_ar_condicionado_e_postado_no_canal_pessoal_mesmo_sem_queda_de_preco(monkeypatch, com_canal_pessoal):
+    """O canal pessoal não tem faixa de campeões nem de queda; o pedido passa só pela faixa de preço."""
     monkeypatch.setattr(pipeline.mercadolivre, "verificar_vendedores", leitor_de_paginas({"ar": (5, False)}))
-    ar = ml_pedido("ar", "Ar Condicionado Split Inverter Gree 12000 Btus", 1799.0, nome="Ar", destino="apple")
-    normal = oferta("Fone Bluetooth Sem Fio", 50.0, id_produto="fone", nota=4.9, vendas=50_000, destino=None)
-    grupos = destinos.dividir([ar, normal])
-    escolhidas, _ = pipeline.selecionar(grupos["apple"], 3, True, destinos.apple())
+    ar = ml_pedido("ar", "Ar Condicionado Split Inverter Gree 12000 Btus", 1799.0, nome="Ar", destino="pessoal")
+    grupos = destinos.dividir([ar])
+    escolhidas, _ = pipeline.selecionar(grupos["pessoal"], 3, True, destinos.pessoal())
     assert [o.id_produto for o in escolhidas] == ["ar"]
+
+
+def test_canal_pessoal_e_grupo_apple_nao_se_confundem(monkeypatch, com_canal_pessoal):
+    """Configurados os dois ao mesmo tempo: pedido pessoal vai para um, produto Apple para o outro."""
+    monkeypatch.setattr(destinos.config, "chat_id_apple", "-1009999999999")
+    ar = oferta("Ar Condicionado Split Inverter 12000 Btus", 1700.0, id_produto="ar", destino="pessoal", pedido="Ar")
+    iphone = oferta("iPhone 15 128gb Apple", 3500.0, id_produto="iph")
+    grupos = destinos.dividir([ar, iphone])
+    assert [o.id_produto for o in grupos["pessoal"]] == ["ar"]
+    assert [o.id_produto for o in grupos["apple"]] == ["iph"]
+    assert destinos.chat_para(ar) == ("pessoal", CANAL_PESSOAL)
+    assert destinos.chat_para(iphone) == ("apple", "-1009999999999")

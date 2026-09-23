@@ -65,7 +65,7 @@ def ja_postada(uid: str, dentro_de_dias: int) -> bool:
 
 
 def registrar(oferta: Oferta, destino: str = "geral") -> None:
-    """Marca a oferta como postada em `destino` ("geral" ou "apple")."""
+    """Marca a oferta como postada em `destino` ("geral", "pessoal" ou "apple")."""
     with _conn() as c:
         c.execute(
             "INSERT OR REPLACE INTO postadas (uid, plataforma, titulo, preco, postada_em, destino)"

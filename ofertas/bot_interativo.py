@@ -145,7 +145,8 @@ async def _callback(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         destino, chat = destinos.chat_para(oferta)   # produto Apple vai para o grupo Apple, se configurado
         await postar_oferta(ctx.bot, oferta, chat)
         db.registrar(oferta, destino)
-        await _status("✅ Postada no grupo Apple!" if destino == "apple" else "✅ Postada no canal!")
+        nomes = {"apple": "no grupo Apple", "pessoal": "no canal pessoal"}
+        await _status(f"✅ Postada {nomes.get(destino, 'no canal')}!")
     else:
         await _status("🗑 Descartada.")
 

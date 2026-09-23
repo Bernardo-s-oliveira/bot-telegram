@@ -34,6 +34,7 @@ class Config:
         # .env (segredos)
         self.bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
         self.chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+        self.chat_id_pessoal: str = os.getenv("TELEGRAM_CHAT_ID_PESSOAL", "").strip()  # só pedidos com destino: pessoal
         self.chat_id_apple: str = os.getenv("TELEGRAM_CHAT_ID_APPLE", "").strip()   # grupo só de produtos Apple
         self.owner_id: int = int(os.getenv("TELEGRAM_OWNER_ID", "0").strip() or 0)
         self.amazon_tag: str = os.getenv("AMAZON_TAG", "").strip()
@@ -92,6 +93,12 @@ class Config:
         self.pedidos_arquivo: str = str(ped.get("arquivo") or "pedidos.yaml")
         self.pedidos_max_por_ciclo: int = int(ped.get("max_por_ciclo", 2))
         self.pedidos_selo: str = str(ped.get("selo") if ped.get("selo") is not None else "📌 Pedido de cliente").strip()
+
+        # Canal pessoal (ofertas/destinos.py): só recebe pedidos de cliente marcados com `destino: pessoal`
+        # (pedidos.yaml) — nenhum produto cai lá sozinho. Só liga com TELEGRAM_CHAT_ID_PESSOAL no .env.
+        pessoal = y.get("pessoal") or {}
+        self.pessoal_ativo: bool = bool(pessoal.get("ativo", True))
+        self.pessoal_max_posts: int = int(pessoal.get("max_posts_por_ciclo", 8))
 
         # Grupo Apple (ofertas/destinos.py): produtos Apple vão para o grupo próprio, o resto para o canal geral.
         # Só liga com TELEGRAM_CHAT_ID_APPLE no .env; sem ele, tudo continua indo para o canal geral.
@@ -179,9 +186,13 @@ def verificar() -> list[str]:
         pendencias.append("TELEGRAM_CHAT_ID (canal/grupo onde o bot vai postar)")
     if not config.owner_id:
         pendencias.append("TELEGRAM_OWNER_ID (seu user id — mande /id para o bot)")
-    if config.chat_id_apple and config.chat_id_apple == config.chat_id:
-        pendencias.append("TELEGRAM_CHAT_ID_APPLE é IGUAL a TELEGRAM_CHAT_ID: o grupo Apple e o canal geral "
-                          "precisam de IDs diferentes (use 'Detectar IDs' no painel e escolha o destino de cada chat)")
+    ids = [("TELEGRAM_CHAT_ID", config.chat_id), ("TELEGRAM_CHAT_ID_PESSOAL", config.chat_id_pessoal),
+          ("TELEGRAM_CHAT_ID_APPLE", config.chat_id_apple)]
+    for i, (nome_a, id_a) in enumerate(ids):
+        for nome_b, id_b in ids[i + 1:]:
+            if id_a and id_a == id_b:
+                pendencias.append(f"{nome_a} é IGUAL a {nome_b}: cada canal precisa de um ID diferente "
+                                  "(use 'Detectar IDs' no painel e escolha o destino de cada chat)")
     if not config.amazon_tag:
         pendencias.append("AMAZON_TAG (tag/Store ID do Amazon Associates)")
     if config.fonte_amazon.get("ativa") and not (config.amazon_credential_id and config.amazon_credential_secret):

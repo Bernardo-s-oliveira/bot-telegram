@@ -34,6 +34,9 @@ CAMPOS = [
      "Use o botão 'Detectar IDs' depois de colocar o token."),
     ("TELEGRAM_CHAT_ID", "ID do canal", "Telegram", False,
      "O canal onde o bot posta. Use 'Detectar IDs'."),
+    ("TELEGRAM_CHAT_ID_PESSOAL", "ID do canal pessoal", "Telegram", False,
+     "Opcional. Só recebe pedido de cliente marcado com 'destino: pessoal' em pedidos.yaml; sem ele, esses "
+     "pedidos caem no canal. Use 'Detectar IDs'."),
     ("TELEGRAM_CHAT_ID_APPLE", "ID do grupo Apple", "Telegram", False,
      "Opcional. Grupo só de produtos Apple; sem ele, tudo vai para o canal. Use 'Detectar IDs'."),
     ("ML_ETIQUETA", "Etiqueta do afiliado", "Mercado Livre", False,
@@ -140,15 +143,17 @@ def sugerir_destino(titulo: str) -> str:
     return "apple" if _RE_TITULO_APPLE.search(titulo or "") else "geral"
 
 
+_CAMPO_POR_DESTINO = {"geral": "TELEGRAM_CHAT_ID", "pessoal": "TELEGRAM_CHAT_ID_PESSOAL", "apple": "TELEGRAM_CHAT_ID_APPLE"}
+
+
 def _campo_atual(chat_id, username: str, env: dict[str, str]) -> str | None:
-    """Em qual campo do .env este chat já está: "geral", "apple" ou None. Compara o ID numérico e, para canais
-    públicos gravados como @nome, o username."""
+    """Em qual destino este chat já está: "geral", "pessoal", "apple" ou None. Compara o ID numérico e, para
+    canais públicos gravados como @nome, o username."""
     def igual(valor: str) -> bool:
         return bool(valor) and (valor == str(chat_id) or (bool(username) and valor.lower() == f"@{username}".lower()))
-    if igual(env.get("TELEGRAM_CHAT_ID", "")):
-        return "geral"
-    if igual(env.get("TELEGRAM_CHAT_ID_APPLE", "")):
-        return "apple"
+    for destino, campo in _CAMPO_POR_DESTINO.items():
+        if igual(env.get(campo, "")):
+            return destino
     return None
 
 
@@ -284,11 +289,13 @@ class Handler(BaseHTTPRequestHandler):
                 if segredo and not v and atuais.get(chave):
                     continue
                 filtrados[chave] = v
-            geral, apple = filtrados.get("TELEGRAM_CHAT_ID", ""), filtrados.get("TELEGRAM_CHAT_ID_APPLE", "")
-            if geral and geral == apple:
-                self._json({"erro": "O canal geral e o grupo Apple estão com o MESMO ID. Cada um precisa do seu: "
-                                    "use os botões de 'Detectar IDs' e escolha o destino de cada chat."})
-                return
+            ids = [(destino, filtrados.get(campo, "")) for destino, campo in _CAMPO_POR_DESTINO.items()]
+            for i, (nome_a, id_a) in enumerate(ids):
+                for nome_b, id_b in ids[i + 1:]:
+                    if id_a and id_a == id_b:
+                        self._json({"erro": f"O canal {nome_a} e o {nome_b} estão com o MESMO ID. Cada um precisa "
+                                            "do seu: use os botões de 'Detectar IDs' e escolha o destino de cada chat."})
+                        return
             salvar_env(filtrados)
             self._json({"ok": True})
         elif rota == "/api/start":
